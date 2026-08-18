@@ -48,6 +48,7 @@ from app.main import app  # noqa: E402
 from app.models import (  # noqa: E402
     AIJob,
     AuthSession,
+    KnockMessage,
     Place,
     PlaceMembership,
     Presence,
@@ -69,6 +70,7 @@ def clean_auth_tables():
     def clean() -> None:
         with SessionLocal() as db:
             db.execute(delete(AIJob))
+            db.execute(delete(KnockMessage))
             db.execute(delete(Visit))
             db.execute(delete(Presence))
             db.execute(delete(PlaceMembership))
