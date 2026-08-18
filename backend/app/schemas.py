@@ -62,3 +62,22 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user: UserResponse
 
+
+class CoordinatesRequest(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
+class CurrentPlaceResponse(BaseModel):
+    id: int
+    osm_type: str
+    osm_id: int
+    name: str
+    parent_place_id: int | None
+    rank: str
+    completed_visits: int
+
+
+class PresenceResponse(BaseModel):
+    places: list[CurrentPlaceResponse]
+    expires_in_seconds: int

@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.auth import auth_router, websocket_router
 from app.config import settings
 from app.database import SessionLocal, create_schema
+from app.places import places_router
 
 
 @asynccontextmanager
@@ -19,6 +20,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="PlacePulse API", version="0.1.0", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(websocket_router)
+app.include_router(places_router)
 
 
 @app.get("/api/health")
