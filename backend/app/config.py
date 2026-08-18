@@ -20,6 +20,13 @@ class Settings:
     overpass_url: str = os.getenv(
         "OVERPASS_URL", "https://overpass-api.de/api"
     ).rstrip("/")
+    ai_provider: str = os.getenv("AI_PROVIDER", "openai")
+    ai_api_url: str = os.getenv(
+        "AI_API_URL", "https://api.openai.com/v1/responses"
+    )
+    ai_api_key: str = os.getenv("AI_API_KEY", "")
+    ai_model: str = os.getenv("AI_MODEL", "gpt-4.1-mini")
+    ai_timeout_seconds: float = float(os.getenv("AI_TIMEOUT_SECONDS", "8"))
     db_host: str = os.getenv("DB_HOST", "db")
     db_port: int = int(os.getenv("DB_PORT", "5432"))
     db_name: str = os.getenv("POSTGRES_DB", "placepulse")
