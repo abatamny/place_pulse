@@ -1,5 +1,9 @@
 # PlacePulse
 
+[![CI](https://github.com/abatamny/place_pulse/actions/workflows/ci.yml/badge.svg)](https://github.com/abatamny/place_pulse/actions/workflows/ci.yml)
+
+Repository: <https://github.com/abatamny/place_pulse>
+
 PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. The project currently includes authentication, place/presence tracking, AI-backed moderation, live place-scoped KNOCK messages, temporary DIG media, permanent Explore memories, place forums, and private direct messages.
 
 ## Requirements
@@ -134,6 +138,26 @@ docker compose run --build --rm backend pytest -q
 
 The tests automatically create and use a separate PostGIS-enabled `placepulse_test` database. OpenStreetMap is replaced with a deterministic fake resolver, so tests do not depend on live network services or modify users created through the application.
 
+The final suites can also be run separately:
+
+```sh
+docker compose run --build --rm backend pytest -q -m system
+docker compose run --build --rm backend pytest -q -m security
+docker compose run --build --rm backend pytest -q -m stress
+```
+
+See the [feature-to-test matrix](docs/feature-test-matrix.md) for the complete mapping of features to unit, integration, system, security, and stress coverage.
+
+## Fresh-install verification
+
+The following PowerShell command creates an isolated Compose project on port `18080`, verifies all four services, the public UI, database health, and registration/login through Nginx, then removes only its temporary containers and volumes:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/fresh-start-test.ps1
+```
+
+It does not reset the normal `place_pulse` Compose project or its saved data. GitHub Actions repeats the backend tests, frontend production build, and fresh four-service startup on every push and pull request.
+
 ## Startup smoke test
 
 On PowerShell, run:
@@ -169,6 +193,13 @@ powershell -ExecutionPolicy Bypass -File scripts/deploy-azure.ps1 `
 The environment file is base64-encoded into VM custom data during provisioning and installed as `/opt/placepulse/.env` with root-only permissions. For a course demo, use a dedicated low-value AI key rather than reusing an important production credential. The helper validates repository/branch inputs, starts Compose through cloud-init, prints the public IP, and deletes its temporary rendered cloud-init file.
 
 When the demo is finished, remove the Azure resource group from the portal or with `az group delete --name placepulse-course-rg`. This permanently deletes the VM and its stored database/media volumes.
+
+## Final project documents
+
+- [Final report](docs/final-report.md)
+- [Feature-to-test matrix](docs/feature-test-matrix.md)
+- [Risk assessment](docs/risk-assessment.md)
+- [Demonstration video script](docs/demo-script.md)
 
 ## Useful commands
 
