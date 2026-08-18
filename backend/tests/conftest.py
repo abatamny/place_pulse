@@ -46,6 +46,7 @@ ensure_test_database()
 from app.database import SessionLocal, create_schema  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import (  # noqa: E402
+    AIJob,
     AuthSession,
     Place,
     PlaceMembership,
@@ -67,6 +68,7 @@ def client() -> TestClient:
 def clean_auth_tables():
     def clean() -> None:
         with SessionLocal() as db:
+            db.execute(delete(AIJob))
             db.execute(delete(Visit))
             db.execute(delete(Presence))
             db.execute(delete(PlaceMembership))
