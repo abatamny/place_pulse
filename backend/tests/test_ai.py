@@ -1,12 +1,17 @@
 import asyncio
+import json
 from collections.abc import Sequence
 
+import httpx
 from sqlalchemy import select
 
 from app.ai import (
+    ImageModerationInput,
     ModerationDecision,
+    OpenAIAdapter,
     PlaceRouteOption,
     RoutingDecision,
+    moderate_media_before_publication,
     moderate_before_publication,
     route_before_publication,
 )
@@ -50,6 +55,163 @@ class FakeAIAdapter:
         if self.delay:
             await asyncio.sleep(self.delay)
         return self.routing
+
+
+def provider_adapter(
+    handler,
+    *,
+    api_format: str = "chat_completions",
+    media_moderation_mode: str = "model",
+) -> OpenAIAdapter:
+    return OpenAIAdapter(
+        api_url="https://provider.test/chat/completions",
+        api_format=api_format,
+        api_key="test-key",
+        model="qwen3.7-plus",
+        moderation_url="https://provider.test/moderations",
+        moderation_model="qwen3.7-plus",
+        media_moderation_mode=media_moderation_mode,
+        request_timeout=1,
+        transport=httpx.MockTransport(handler),
+    )
+
+
+def test_openai_compatible_chat_returns_validated_json() -> None:
+    observed_body: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed_body.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "approved": True,
+                                    "reason": "Safe community message",
+                                    "categories": [],
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    decision = asyncio.run(
+        provider_adapter(handler).moderate_text("Anyone studying nearby?")
+    )
+
+    assert decision.approved is True
+    assert observed_body["model"] == "qwen3.7-plus"
+    assert observed_body["response_format"] == {"type": "json_object"}
+    assert observed_body["messages"][0]["role"] == "system"
+    system_message = observed_body["messages"][0]["content"]
+    assert "concrete JSON decision object" in system_message
+    assert '"approved": false' in system_message
+    assert "additionalProperties" not in system_message
+
+
+def test_openai_compatible_model_moderates_image_frames() -> None:
+    observed_body: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed_body.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "approved": False,
+                                    "reason": "Unsafe media",
+                                    "categories": ["violence"],
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    images = [
+        ImageModerationInput(content_type="image/jpeg", data=b"frame-one"),
+        ImageModerationInput(content_type="image/jpeg", data=b"frame-two"),
+    ]
+    decision = asyncio.run(provider_adapter(handler).moderate_images(images))
+
+    assert decision.approved is False
+    assert decision.categories == ["violence"]
+    content = observed_body["messages"][1]["content"]
+    assert [item["type"] for item in content] == [
+        "text",
+        "image_url",
+        "image_url",
+    ]
+    assert content[1]["image_url"]["url"].startswith(
+        "data:image/jpeg;base64,"
+    )
+
+
+def test_openai_compatible_invalid_media_output_fails_closed() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "not JSON"}}]},
+        )
+
+    decision = asyncio.run(
+        moderate_media_before_publication(
+            provider_adapter(handler),
+            [ImageModerationInput(content_type="image/jpeg", data=b"frame")],
+        )
+    )
+
+    assert decision.approved is False
+    assert decision.categories == ["ai_failure"]
+
+
+def test_native_openai_responses_format_remains_supported() -> None:
+    observed_body: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed_body.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        "approved": True,
+                                        "reason": "Safe message",
+                                        "categories": [],
+                                    }
+                                ),
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+    adapter = provider_adapter(
+        handler,
+        api_format="responses",
+        media_moderation_mode="moderations",
+    )
+    decision = asyncio.run(adapter.moderate_text("A normal message"))
+
+    assert decision.approved is True
+    assert observed_body["text"]["format"]["type"] == "json_schema"
 
 
 def test_prepublication_moderation_returns_structured_decision() -> None:
