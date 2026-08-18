@@ -24,6 +24,7 @@ class Settings:
     ai_api_url: str = os.getenv(
         "AI_API_URL", "https://api.openai.com/v1/responses"
     )
+    ai_api_format: str = os.getenv("AI_API_FORMAT", "responses")
     ai_api_key: str = os.getenv("AI_API_KEY", "")
     ai_model: str = os.getenv("AI_MODEL", "gpt-4.1-mini")
     ai_moderation_url: str = os.getenv(
@@ -31,6 +32,9 @@ class Settings:
     )
     ai_moderation_model: str = os.getenv(
         "AI_MODERATION_MODEL", "omni-moderation-latest"
+    )
+    ai_media_moderation_mode: str = os.getenv(
+        "AI_MEDIA_MODERATION_MODE", "moderations"
     )
     ai_timeout_seconds: float = float(os.getenv("AI_TIMEOUT_SECONDS", "8"))
     db_host: str = os.getenv("DB_HOST", "db")
