@@ -54,6 +54,25 @@ type KnockHistoryResponse = {
   messages: KnockMessage[];
 };
 
+type Dig = {
+  id: number;
+  place_id: number;
+  place_name: string;
+  user_id: number;
+  nickname: string;
+  media_type: "image" | "video";
+  content_type: string;
+  original_filename: string;
+  file_size: number;
+  media_url: string;
+  created_at: string;
+  expires_at: string;
+};
+
+type DigFeedResponse = {
+  digs: Dig[];
+};
+
 const TOKEN_KEY = "placepulse-session";
 
 async function apiRequest<T>(
@@ -62,7 +81,7 @@ async function apiRequest<T>(
   token?: string,
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  if (options.body) {
+  if (options.body && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
   if (token) {
@@ -465,6 +484,248 @@ function KnockPanel({
   );
 }
 
+function DigMedia({ dig, token }: { dig: Dig; token: string }) {
+  const [source, setSource] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl = "";
+    fetch(dig.media_url, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Media is no longer available");
+        }
+        return response.blob();
+      })
+      .then((blob) => {
+        if (active) {
+          objectUrl = URL.createObjectURL(blob);
+          setSource(objectUrl);
+        }
+      })
+      .catch((caught) => {
+        if (active) {
+          setError(caught instanceof Error ? caught.message : "Media unavailable");
+        }
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [dig.id, dig.media_url, token]);
+
+  if (error) {
+    return <p className="dig-media-state">{error}</p>;
+  }
+  if (!source) {
+    return <p className="dig-media-state">Loading media...</p>;
+  }
+  if (dig.media_type === "video") {
+    return <video className="dig-media" controls playsInline src={source} />;
+  }
+  return (
+    <img
+      alt={`DIG shared by ${dig.nickname} at ${dig.place_name}`}
+      className="dig-media"
+      src={source}
+    />
+  );
+}
+
+function DigPanel({
+  token,
+  places,
+}: {
+  token: string;
+  places: CurrentPlace[];
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [digs, setDigs] = useState<Dig[]>([]);
+  const [selectedPlaceId, setSelectedPlaceId] = useState("");
+  const [refreshNumber, setRefreshNumber] = useState(0);
+  const [uploading, setUploading] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const placeKey = places.map((place) => place.id).join(",");
+
+  useEffect(() => {
+    if (!places.length) {
+      setSelectedPlaceId("");
+      return;
+    }
+    if (!places.some((place) => String(place.id) === selectedPlaceId)) {
+      setSelectedPlaceId(String(places[places.length - 1].id));
+    }
+  }, [placeKey, places, selectedPlaceId]);
+
+  useEffect(() => {
+    if (!places.length) {
+      setDigs([]);
+      return;
+    }
+
+    let active = true;
+    setError("");
+    Promise.all(
+      places.map((place) =>
+        apiRequest<DigFeedResponse>(
+          `/api/digs?place_id=${place.id}`,
+          {},
+          token,
+        ),
+      ),
+    )
+      .then((feeds) => {
+        if (!active) {
+          return;
+        }
+        const unique = new Map<number, Dig>();
+        feeds.flatMap((feed) => feed.digs).forEach((dig) => unique.set(dig.id, dig));
+        setDigs(
+          [...unique.values()].sort(
+            (left, right) =>
+              new Date(right.created_at).getTime() -
+              new Date(left.created_at).getTime(),
+          ),
+        );
+      })
+      .catch((caught) => {
+        if (active) {
+          setError(caught instanceof Error ? caught.message : "Could not load DIGs");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [placeKey, places, refreshNumber, token]);
+
+  async function uploadDig(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const selectedFile = inputRef.current?.files?.[0];
+    if (!selectedFile || !selectedPlaceId) {
+      setError("Choose a place and a media file.");
+      return;
+    }
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      setError("DIG uploads cannot exceed 10 MB.");
+      return;
+    }
+
+    setUploading(true);
+    setError("");
+    setNotice("");
+    const form = new FormData();
+    form.set("place_id", selectedPlaceId);
+    form.set("file", selectedFile);
+    try {
+      await apiRequest<Dig>(
+        "/api/digs",
+        { method: "POST", body: form },
+        token,
+      );
+      if (inputRef.current) {
+        inputRef.current.value = "";
+      }
+      setNotice("DIG published. It will disappear after 24 hours.");
+      setRefreshNumber((value) => value + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  if (!places.length) {
+    return (
+      <section className="knock-card knock-empty">
+        <span className="knock-icon" aria-hidden="true">&#9673;</span>
+        <h2>Nearby DIGs appear here</h2>
+        <p>Share your location to view and post temporary media.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="knock-card dig-card">
+      <header className="knock-heading">
+        <div>
+          <p className="eyebrow">Temporary nearby media</p>
+          <h2>DIG</h2>
+        </div>
+        <span className="dig-lifetime">24 hours</span>
+      </header>
+
+      <form className="dig-composer" onSubmit={uploadDig}>
+        <label>
+          Post to
+          <select
+            onChange={(event) => setSelectedPlaceId(event.target.value)}
+            required
+            value={selectedPlaceId}
+          >
+            {places.map((place) => (
+              <option key={place.id} value={place.id}>
+                {place.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Image or short video
+          <input
+            accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
+            ref={inputRef}
+            required
+            type="file"
+          />
+        </label>
+        <div className="dig-upload-footer">
+          <small>JPEG, PNG, WebP, MP4, or WebM. Up to 10 MB and 15 seconds.</small>
+          <button className="button" disabled={uploading} type="submit">
+            {uploading ? "Checking..." : "Post DIG"}
+          </button>
+        </div>
+      </form>
+
+      {notice && <p className="dig-notice">{notice}</p>}
+      {error && <p className="knock-error">{error}</p>}
+
+      <div className="dig-feed" aria-live="polite">
+        {digs.length === 0 ? (
+          <div className="feed-empty">
+            <p>No active DIGs yet.</p>
+            <span>Share the first view from this place.</span>
+          </div>
+        ) : (
+          digs.map((dig) => (
+            <article className="dig-item" key={dig.id}>
+              <DigMedia dig={dig} token={token} />
+              <div className="dig-meta">
+                <div>
+                  <strong>{dig.nickname}</strong>
+                  <span>{dig.place_name}</span>
+                </div>
+                <time dateTime={dig.expires_at}>
+                  Expires {new Date(dig.expires_at).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </div>
+            </article>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
 function SignedInApp({
   token,
   user,
@@ -475,6 +736,7 @@ function SignedInApp({
   onLogout: () => void;
 }) {
   const [places, setPlaces] = useState<CurrentPlace[]>([]);
+  const [mainView, setMainView] = useState<"knock" | "dig">("knock");
 
   return (
     <main className="app-shell">
@@ -510,7 +772,29 @@ function SignedInApp({
           </section>
         </aside>
 
-        <KnockPanel places={places} token={token} user={user} />
+        <div className="main-pane">
+          <nav className="main-tabs" aria-label="Place activity">
+            <button
+              className={mainView === "knock" ? "active" : ""}
+              onClick={() => setMainView("knock")}
+              type="button"
+            >
+              KNOCK
+            </button>
+            <button
+              className={mainView === "dig" ? "active" : ""}
+              onClick={() => setMainView("dig")}
+              type="button"
+            >
+              DIG
+            </button>
+          </nav>
+          {mainView === "knock" ? (
+            <KnockPanel places={places} token={token} user={user} />
+          ) : (
+            <DigPanel places={places} token={token} />
+          )}
+        </div>
       </div>
     </main>
   );

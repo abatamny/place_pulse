@@ -20,6 +20,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -127,6 +128,7 @@ label {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   padding: 0.8rem 0.9rem;
@@ -137,6 +139,7 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: #28745f;
   outline: 3px solid rgb(40 116 95 / 15%);
@@ -359,6 +362,37 @@ dd {
   gap: 1rem;
 }
 
+.main-pane {
+  display: grid;
+  min-width: 0;
+  gap: 0.65rem;
+}
+
+.main-tabs {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.3rem;
+  border: 1px solid #d0dfd5;
+  border-radius: 0.8rem;
+  background: #e4ede8;
+}
+
+.main-tabs button {
+  flex: 1;
+  padding: 0.7rem;
+  border: 0;
+  border-radius: 0.6rem;
+  background: transparent;
+  color: #536c65;
+  font-weight: 800;
+}
+
+.main-tabs button.active {
+  background: #fff;
+  color: #173b34;
+  box-shadow: 0 0.15rem 0.5rem rgb(23 59 52 / 10%);
+}
+
 .account-summary {
   display: grid;
   gap: 0.35rem;
@@ -553,6 +587,97 @@ dd {
 .knock-icon {
   color: #55b899;
   font-size: 3rem;
+}
+
+.dig-lifetime {
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  background: #fff1cb;
+  color: #795b09;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.dig-composer {
+  padding: 0 1rem 1rem;
+  border-bottom: 1px solid #e2ebe6;
+}
+
+.dig-upload-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.dig-upload-footer small {
+  flex: 1 1 16rem;
+  color: #61766f;
+  line-height: 1.4;
+}
+
+.dig-notice {
+  margin: 0;
+  padding: 0.65rem 1rem;
+  background: #e0f5e8;
+  color: #17623f;
+  font-size: 0.82rem;
+}
+
+.dig-feed {
+  display: grid;
+  min-height: 20rem;
+  gap: 1rem;
+  padding: 1rem;
+  background: #f8faf9;
+}
+
+.dig-item {
+  overflow: hidden;
+  border: 1px solid #d8e5de;
+  border-radius: 0.85rem;
+  background: #fff;
+}
+
+.dig-media,
+.dig-media-state {
+  width: 100%;
+  min-height: 14rem;
+  max-height: 32rem;
+  margin: 0;
+  background: #173b34;
+}
+
+.dig-media {
+  display: block;
+  object-fit: contain;
+}
+
+.dig-media-state {
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  color: #d8e5de;
+}
+
+.dig-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0.9rem;
+}
+
+.dig-meta div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.dig-meta span,
+.dig-meta time {
+  color: #61766f;
+  font-size: 0.75rem;
 }
 
 @media (min-width: 760px) {
