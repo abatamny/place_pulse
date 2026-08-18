@@ -1,6 +1,6 @@
 # PlacePulse
 
-PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. The project currently includes authentication, place/presence tracking, AI-backed moderation, live place-scoped KNOCK messages, temporary DIG media, and permanent Explore memories.
+PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. The project currently includes authentication, place/presence tracking, AI-backed moderation, live place-scoped KNOCK messages, temporary DIG media, permanent Explore memories, place forums, and private direct messages.
 
 ## Requirements
 
@@ -104,11 +104,25 @@ The background worker checks approved DIG activity without making another AI cal
 
 Every author whose DIG was selected is a participant and can revisit that memory after leaving. Other users can view, like, and comment on it only while their location heartbeat shows that they are currently at the same place. Open the **Explore** tab to see all memories currently accessible to the signed-in user.
 
+## Place forum and personal area
+
+Open **Forum** after sharing your location to read or create persistent text posts for any active place layer. Posts may be anonymous, and present users can add comments or change an upvote/downvote. Post and comment text is moderated before publication and fails closed if the configured AI provider is unavailable. Forum media is intentionally omitted to keep this optional course feature small.
+
+The **My posts** view remains available after leaving a place. It lists the signed-in user's posts and totals their received likes, dislikes, and net score. Anonymous posts never reveal their author in public API responses.
+
+## Direct messages
+
+The **Messages** tab supports private one-to-one conversations without requiring location presence. Search for another verified user by nickname or phone number, send a saved message, and reopen the complete recent history later. Only the sender and recipient can obtain that conversation through the API.
+
+An authenticated WebSocket remains connected while the signed-in app is open. New messages update the unread badge immediately, while unread counts and read timestamps are also persisted in PostgreSQL.
+
 ## AI moderation and worker
 
 The backend has one adapter for structured text-moderation and nested-place routing decisions. Pre-publication calls have a timeout and fail closed: invalid input, prompt-injection patterns, invalid model output, and provider failures never produce an approval.
 
-Post-publication moderation is placed in the PostgreSQL `ai_jobs` table. The internal `worker` service polls this table, records a completed structured result or a safe failed status, and continues running after model errors. Automated tests inject a deterministic fake adapter, so test runs never call or charge a real provider. For a live demo, set `AI_API_KEY` in your uncommitted `.env` file.
+Post-publication moderation is placed in the PostgreSQL `ai_jobs` table. The internal `worker` service rotates among users' oldest jobs so one busy user cannot starve everyone else, records a completed structured result or a safe failed status, and continues running after model errors.
+
+Model inputs are normalized before broader jailbreak-pattern checks, untrusted OpenStreetMap place facts and containment relationships are validated, moderation categories are restricted, and routing results must use known place IDs without contradicting an explicitly named place. Automated tests inject a deterministic fake adapter, so test runs never call or charge a real provider. For a live demo, set `AI_API_KEY` in your uncommitted `.env` file.
 
 ## Automated tests
 
@@ -129,6 +143,32 @@ powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1
 ```
 
 The smoke test builds and starts the stack, waits for the public health endpoint, confirms that the schema exists, writes one harmless foundation record, restarts PostgreSQL, and confirms the record is still present. It leaves the application running for inspection.
+
+## Optional Azure VM deployment
+
+The course-sized Azure path runs the same Docker Compose stack on one Ubuntu VM, so PostgreSQL/PostGIS, media, the backend, worker, and Nginx keep the same architecture. Only SSH and Nginx on port 80 are opened publicly. This creates billable Azure resources and is not run automatically.
+
+Prerequisites:
+
+- Azure CLI, signed in with `az login` and set to the intended subscription
+- An SSH public key
+- The repository available from the public GitHub URL, with the target branch pushed
+- A private environment file outside the repository containing strong `VERIFICATION_SECRET` and `POSTGRES_PASSWORD` values plus the AI provider configuration
+
+Deploy from PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/deploy-azure.ps1 `
+  -ResourceGroup placepulse-course-rg `
+  -VmName placepulse-course `
+  -Location westeurope `
+  -SshPublicKeyPath "C:\path\to\id_ed25519.pub" `
+  -EnvironmentFile "C:\private\placepulse-azure.env"
+```
+
+The environment file is base64-encoded into VM custom data during provisioning and installed as `/opt/placepulse/.env` with root-only permissions. For a course demo, use a dedicated low-value AI key rather than reusing an important production credential. The helper validates repository/branch inputs, starts Compose through cloud-init, prints the public IP, and deletes its temporary rendered cloud-init file.
+
+When the demo is finished, remove the Azure resource group from the portal or with `az group delete --name placepulse-course-rg`. This permanently deletes the VM and its stored database/media volumes.
 
 ## Useful commands
 
