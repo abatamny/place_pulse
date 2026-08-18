@@ -12,7 +12,9 @@ from app.ai import (
 )
 from app.config import settings
 from app.database import create_schema
+from app.explore import create_memory_from_activity
 from app.jobs import (
+    EXPLORE_CLUSTER_JOB,
     TEXT_MODERATION_JOB,
     claim_next_job,
     complete_job,
@@ -33,6 +35,20 @@ async def process_next_job(
         return False
 
     try:
+        if job.job_type == EXPLORE_CLUSTER_JOB:
+            place_id = job.payload.get("place_id")
+            if not isinstance(place_id, int) or place_id <= 0:
+                raise AIInputError("Explore cluster job is missing a place")
+            memory_id = create_memory_from_activity(place_id)
+            complete_job(
+                job.id,
+                {
+                    "created": memory_id is not None,
+                    "memory_id": memory_id,
+                },
+            )
+            return True
+
         if job.job_type != TEXT_MODERATION_JOB:
             raise AIInputError(f"Unsupported AI job type: {job.job_type}")
 

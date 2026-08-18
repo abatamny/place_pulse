@@ -2,12 +2,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.ai import validate_model_input
 from app.database import SessionLocal
 from app.models import AIJob, KnockMessage
 
 TEXT_MODERATION_JOB = "text_moderation"
+EXPLORE_CLUSTER_JOB = "explore_cluster"
 PENDING = "pending"
 RUNNING = "running"
 COMPLETED = "completed"
@@ -38,6 +40,17 @@ def enqueue_text_moderation(text: str) -> int:
         db.commit()
         db.refresh(job)
         return job.id
+
+
+def queue_explore_cluster_check(db: Session, place_id: int) -> None:
+    db.add(
+        AIJob(
+            job_type=EXPLORE_CLUSTER_JOB,
+            status=PENDING,
+            payload={"place_id": place_id},
+            attempts=0,
+        )
+    )
 
 
 def claim_next_job() -> ClaimedAIJob | None:

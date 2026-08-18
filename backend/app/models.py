@@ -170,6 +170,73 @@ class Dig(Base):
     )
 
 
+class ExploreMemory(Base):
+    __tablename__ = "explore_memories"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    place_id: Mapped[int] = mapped_column(
+        ForeignKey("places.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True, nullable=False
+    )
+
+
+class ExploreMemoryDig(Base):
+    __tablename__ = "explore_memory_digs"
+    __table_args__ = (
+        UniqueConstraint("dig_id", name="uq_explore_memory_dig"),
+    )
+
+    memory_id: Mapped[int] = mapped_column(
+        ForeignKey("explore_memories.id", ondelete="CASCADE"), primary_key=True
+    )
+    dig_id: Mapped[int] = mapped_column(
+        ForeignKey("digs.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class ExploreParticipant(Base):
+    __tablename__ = "explore_participants"
+
+    memory_id: Mapped[int] = mapped_column(
+        ForeignKey("explore_memories.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class ExploreComment(Base):
+    __tablename__ = "explore_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    memory_id: Mapped[int] = mapped_column(
+        ForeignKey("explore_memories.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    text: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ExploreLike(Base):
+    __tablename__ = "explore_likes"
+
+    memory_id: Mapped[int] = mapped_column(
+        ForeignKey("explore_memories.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AIJob(Base):
     __tablename__ = "ai_jobs"
 

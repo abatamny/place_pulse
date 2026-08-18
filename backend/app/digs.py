@@ -28,6 +28,7 @@ from app.ai import (
 from app.auth import AuthContext, require_auth
 from app.config import settings
 from app.database import SessionLocal
+from app.jobs import queue_explore_cluster_check
 from app.knock import user_is_present
 from app.models import Dig, Place, User
 from app.rate_limit import AuthRateLimiter
@@ -312,6 +313,7 @@ async def upload_dig(
                 expires_at=now + DIG_LIFETIME,
             )
             db.add(dig)
+            queue_explore_cluster_check(db, place_id)
             db.commit()
             db.refresh(dig)
             return dig_response(dig, place.name, auth.user.nickname)

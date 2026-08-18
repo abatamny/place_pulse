@@ -130,3 +130,55 @@ class DigResponse(BaseModel):
 
 class DigFeedResponse(BaseModel):
     digs: list[DigResponse]
+
+
+class ExploreDigResponse(BaseModel):
+    id: int
+    user_id: int
+    nickname: str
+    media_type: str
+    content_type: str
+    original_filename: str
+    media_url: str
+    created_at: datetime
+
+
+class ExploreCommentRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+    @field_validator("text")
+    @classmethod
+    def clean_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Comment cannot be empty")
+        return value
+
+
+class ExploreCommentResponse(BaseModel):
+    id: int
+    user_id: int
+    nickname: str
+    text: str
+    created_at: datetime
+
+
+class ExploreMemoryResponse(BaseModel):
+    id: int
+    place_id: int
+    place_name: str
+    created_at: datetime
+    participant: bool
+    liked_by_me: bool
+    like_count: int
+    digs: list[ExploreDigResponse]
+    comments: list[ExploreCommentResponse]
+
+
+class ExploreFeedResponse(BaseModel):
+    memories: list[ExploreMemoryResponse]
+
+
+class ExploreLikeResponse(BaseModel):
+    liked_by_me: bool
+    like_count: int
