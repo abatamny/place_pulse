@@ -1,6 +1,6 @@
 # PlacePulse
 
-PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. The project currently includes authentication, place/presence tracking, AI-backed moderation, live place-scoped KNOCK messages, and temporary DIG media.
+PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. The project currently includes authentication, place/presence tracking, AI-backed moderation, live place-scoped KNOCK messages, temporary DIG media, and permanent Explore memories.
 
 ## Requirements
 
@@ -97,6 +97,12 @@ After sharing a location, the main screen connects to the authenticated KNOCK We
 Open the **DIG** tab after sharing your location to view or post media for any active place layer. A DIG may be a JPEG, PNG, WebP, MP4, or WebM file up to 10 MB; videos are limited to 15 seconds. Every upload is validated and moderated before it is written to the persistent media volume or listed in the feed.
 
 Approved DIGs remain available to users currently at that place for 24 hours. Rejected and expired media is not shown. Videos are checked using three representative frames because the configured moderation model accepts images rather than video files directly. Set `AI_API_KEY` in `.env` to publish DIGs in a live demo; automated tests use a fake provider.
+
+## Explore place memories
+
+The background worker checks approved DIG activity without making another AI call. Three unpreserved DIGs posted to the same place within one hour create an Explore memory containing up to five DIGs. The memory and its selected media remain available after the original 24-hour DIG feed entries expire.
+
+Every author whose DIG was selected is a participant and can revisit that memory after leaving. Other users can view, like, and comment on it only while their location heartbeat shows that they are currently at the same place. Open the **Explore** tab to see all memories currently accessible to the signed-in user.
 
 ## AI moderation and worker
 
