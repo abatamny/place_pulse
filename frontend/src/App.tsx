@@ -113,6 +113,79 @@ type ExploreLikeResponse = {
   like_count: number;
 };
 
+type ForumComment = {
+  id: number;
+  user_id: number;
+  nickname: string;
+  text: string;
+  created_at: string;
+};
+
+type ForumPost = {
+  id: number;
+  place_id: number;
+  place_name: string;
+  user_id: number | null;
+  nickname: string;
+  is_anonymous: boolean;
+  is_mine: boolean;
+  title: string;
+  body: string;
+  upvotes: number;
+  downvotes: number;
+  score: number;
+  my_vote: number;
+  created_at: string;
+  comments: ForumComment[];
+};
+
+type ForumFeedResponse = {
+  posts: ForumPost[];
+};
+
+type PersonalForumResponse = {
+  posts: ForumPost[];
+  total_upvotes: number;
+  total_downvotes: number;
+  total_score: number;
+};
+
+type DMUser = {
+  id: number;
+  nickname: string;
+  phone: string;
+};
+
+type DMMessage = {
+  id: number;
+  sender_id: number;
+  sender_nickname: string;
+  recipient_id: number;
+  recipient_nickname: string;
+  text: string;
+  created_at: string;
+  read_at: string | null;
+};
+
+type DMConversation = {
+  user: DMUser;
+  last_message: DMMessage;
+  unread_count: number;
+};
+
+type DMConversationListResponse = {
+  conversations: DMConversation[];
+};
+
+type DMHistoryResponse = {
+  user: DMUser;
+  messages: DMMessage[];
+};
+
+type DMUserSearchResponse = {
+  users: DMUser[];
+};
+
 const TOKEN_KEY = "placepulse-session";
 
 async function apiRequest<T>(
@@ -1021,6 +1094,610 @@ function ExplorePanel({
   );
 }
 
+function ForumPostCard({
+  post,
+  token,
+  onChanged,
+}: {
+  post: ForumPost;
+  token: string;
+  onChanged: () => void;
+}) {
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function vote(value: 1 | -1) {
+    setBusy(true);
+    setError("");
+    try {
+      if (post.my_vote === value) {
+        await apiRequest(`/api/forum/posts/${post.id}/vote`, { method: "DELETE" }, token);
+      } else {
+        await apiRequest(
+          `/api/forum/posts/${post.id}/vote`,
+          { method: "PUT", body: JSON.stringify({ value }) },
+          token,
+        );
+      }
+      onChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not update vote");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitComment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = comment.trim();
+    if (!text) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await apiRequest<ForumComment>(
+        `/api/forum/posts/${post.id}/comments`,
+        { method: "POST", body: JSON.stringify({ text }) },
+        token,
+      );
+      setComment("");
+      onChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not add comment");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <article className="forum-post">
+      <header className="forum-post-heading">
+        <div>
+          <span>{post.nickname}{post.is_mine ? " · You" : ""}</span>
+          <span>{post.place_name}</span>
+        </div>
+        <time dateTime={post.created_at}>
+          {new Date(post.created_at).toLocaleString()}
+        </time>
+      </header>
+      <div className="forum-post-copy">
+        <h3>{post.title}</h3>
+        <p>{post.body}</p>
+      </div>
+      <div className="forum-votes" aria-label={`Score ${post.score}`}>
+        <button
+          className={post.my_vote === 1 ? "active" : ""}
+          disabled={busy}
+          onClick={() => void vote(1)}
+          type="button"
+        >
+          ▲ {post.upvotes}
+        </button>
+        <strong>{post.score}</strong>
+        <button
+          className={post.my_vote === -1 ? "active" : ""}
+          disabled={busy}
+          onClick={() => void vote(-1)}
+          type="button"
+        >
+          ▼ {post.downvotes}
+        </button>
+      </div>
+      <div className="forum-comments">
+        {post.comments.map((item) => (
+          <div className="forum-comment" key={item.id}>
+            <strong>{item.nickname}</strong>
+            <p>{item.text}</p>
+            <time dateTime={item.created_at}>
+              {new Date(item.created_at).toLocaleString()}
+            </time>
+          </div>
+        ))}
+        {post.comments.length === 0 && <p className="forum-no-comments">No comments yet.</p>}
+      </div>
+      {error && <p className="knock-error">{error}</p>}
+      <form className="forum-comment-form" onSubmit={submitComment}>
+        <input
+          aria-label={`Comment on ${post.title}`}
+          maxLength={1000}
+          onChange={(event) => setComment(event.target.value)}
+          placeholder="Add a comment"
+          value={comment}
+        />
+        <button className="button" disabled={busy || !comment.trim()} type="submit">
+          Reply
+        </button>
+      </form>
+    </article>
+  );
+}
+
+function ForumPanel({
+  token,
+  places,
+}: {
+  token: string;
+  places: CurrentPlace[];
+}) {
+  const [mode, setMode] = useState<"place" | "mine">("place");
+  const [selectedPlaceId, setSelectedPlaceId] = useState("");
+  const [posts, setPosts] = useState<ForumPost[]>([]);
+  const [personal, setPersonal] = useState<PersonalForumResponse | null>(null);
+  const [refreshNumber, setRefreshNumber] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const placeKey = places.map((place) => place.id).join(",");
+
+  useEffect(() => {
+    if (!places.length) {
+      setSelectedPlaceId("");
+      return;
+    }
+    if (!places.some((place) => String(place.id) === selectedPlaceId)) {
+      setSelectedPlaceId(String(places[places.length - 1].id));
+    }
+  }, [placeKey, places, selectedPlaceId]);
+
+  useEffect(() => {
+    let active = true;
+    setError("");
+    if (mode === "place" && !selectedPlaceId) {
+      setPosts([]);
+      setPersonal(null);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    async function loadForum() {
+      try {
+        if (mode === "mine") {
+          const response = await apiRequest<PersonalForumResponse>(
+            "/api/forum/me",
+            {},
+            token,
+          );
+          if (active) {
+            setPersonal(response);
+            setPosts(response.posts);
+          }
+        } else {
+          const response = await apiRequest<ForumFeedResponse>(
+            `/api/forum?place_id=${selectedPlaceId}`,
+            {},
+            token,
+          );
+          if (active) {
+            setPersonal(null);
+            setPosts(response.posts);
+          }
+        }
+      } catch (caught) {
+        if (active) {
+          setError(caught instanceof Error ? caught.message : "Could not load forum");
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+    void loadForum();
+    return () => {
+      active = false;
+    };
+  }, [mode, refreshNumber, selectedPlaceId, token]);
+
+  async function submitPost(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedPlaceId) {
+      return;
+    }
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setSubmitting(true);
+    setError("");
+    setNotice("");
+    try {
+      await apiRequest<ForumPost>(
+        "/api/forum/posts",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            place_id: Number(selectedPlaceId),
+            title: String(form.get("title") || ""),
+            body: String(form.get("body") || ""),
+            is_anonymous: form.get("anonymous") === "on",
+          }),
+        },
+        token,
+      );
+      formElement.reset();
+      setNotice("Forum post published.");
+      setRefreshNumber((value) => value + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not publish post");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="knock-card forum-card">
+      <header className="knock-heading">
+        <div>
+          <p className="eyebrow">Place discussions</p>
+          <h2>Forum</h2>
+        </div>
+        <div className="forum-mode-tabs">
+          <button
+            className={mode === "place" ? "active" : ""}
+            onClick={() => setMode("place")}
+            type="button"
+          >
+            Place
+          </button>
+          <button
+            className={mode === "mine" ? "active" : ""}
+            onClick={() => setMode("mine")}
+            type="button"
+          >
+            My posts
+          </button>
+        </div>
+      </header>
+
+      {mode === "place" && places.length > 0 && (
+        <form className="forum-composer" onSubmit={submitPost}>
+          <label>
+            Forum place
+            <select
+              onChange={(event) => setSelectedPlaceId(event.target.value)}
+              value={selectedPlaceId}
+            >
+              {places.map((place) => (
+                <option key={place.id} value={place.id}>{place.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Title
+            <input maxLength={120} name="title" required />
+          </label>
+          <label>
+            Post
+            <textarea maxLength={1800} name="body" required rows={4} />
+          </label>
+          <div className="forum-composer-footer">
+            <label className="checkbox-label">
+              <input name="anonymous" type="checkbox" />
+              Post anonymously
+            </label>
+            <button className="button" disabled={submitting} type="submit">
+              {submitting ? "Checking..." : "Publish"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {mode === "place" && places.length === 0 && (
+        <div className="forum-location-empty">
+          <strong>Share your location to open a place forum.</strong>
+          <span>Your own posts remain available under My posts.</span>
+        </div>
+      )}
+
+      {mode === "mine" && personal && (
+        <div className="forum-personal-summary">
+          <span><strong>{personal.posts.length}</strong> posts</span>
+          <span><strong>{personal.total_upvotes}</strong> likes</span>
+          <span><strong>{personal.total_downvotes}</strong> dislikes</span>
+          <span><strong>{personal.total_score}</strong> total score</span>
+        </div>
+      )}
+
+      {notice && <p className="dig-notice">{notice}</p>}
+      {error && <p className="knock-error">{error}</p>}
+      <div className="forum-feed" aria-live="polite">
+        {loading ? (
+          <div className="feed-empty"><p>Loading forum...</p></div>
+        ) : posts.length === 0 ? (
+          <div className="feed-empty">
+            <p>{mode === "mine" ? "You have not posted yet." : "No forum posts yet."}</p>
+            <span>{mode === "mine" ? "Your posts will appear here." : "Start a place discussion."}</span>
+          </div>
+        ) : (
+          posts.map((post) => (
+            <ForumPostCard
+              key={post.id}
+              onChanged={() => setRefreshNumber((value) => value + 1)}
+              post={post}
+              token={token}
+            />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function DMPanel({
+  token,
+  user,
+  notificationNumber,
+  socketStatus,
+  onUnreadChange,
+}: {
+  token: string;
+  user: User;
+  notificationNumber: number;
+  socketStatus: "connecting" | "connected" | "disconnected";
+  onUnreadChange: (count: number) => void;
+}) {
+  const [conversations, setConversations] = useState<DMConversation[]>([]);
+  const [selectedUser, setSelectedUser] = useState<DMUser | null>(null);
+  const [messages, setMessages] = useState<DMMessage[]>([]);
+  const [searchResults, setSearchResults] = useState<DMUser[]>([]);
+  const [draft, setDraft] = useState("");
+  const [refreshNumber, setRefreshNumber] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    apiRequest<DMConversationListResponse>(
+      "/api/dms/conversations",
+      {},
+      token,
+    )
+      .then((response) => {
+        if (active) {
+          setConversations(response.conversations);
+          onUnreadChange(
+            response.conversations.reduce(
+              (total, conversation) => total + conversation.unread_count,
+              0,
+            ),
+          );
+        }
+      })
+      .catch((caught) => {
+        if (active) {
+          setError(caught instanceof Error ? caught.message : "Could not load messages");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [notificationNumber, onUnreadChange, refreshNumber, token]);
+
+  useEffect(() => {
+    if (!selectedUser) {
+      setMessages([]);
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    setError("");
+
+    async function loadHistory() {
+      try {
+        const history = await apiRequest<DMHistoryResponse>(
+          `/api/dms/${selectedUser!.id}`,
+          {},
+          token,
+        );
+        if (!active) {
+          return;
+        }
+        setMessages(history.messages);
+        setSelectedUser(history.user);
+        await apiRequest<void>(
+          `/api/dms/${history.user.id}/read`,
+          { method: "POST" },
+          token,
+        );
+        const refreshed = await apiRequest<DMConversationListResponse>(
+          "/api/dms/conversations",
+          {},
+          token,
+        );
+        if (active) {
+          setConversations(refreshed.conversations);
+          onUnreadChange(
+            refreshed.conversations.reduce(
+              (total, conversation) => total + conversation.unread_count,
+              0,
+            ),
+          );
+        }
+      } catch (caught) {
+        if (active) {
+          setError(caught instanceof Error ? caught.message : "Could not load history");
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+    void loadHistory();
+    return () => {
+      active = false;
+    };
+  }, [notificationNumber, onUnreadChange, refreshNumber, selectedUser?.id, token]);
+
+  async function searchUsers(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const query = String(form.get("query") || "").trim();
+    if (query.length < 2) {
+      setError("Enter at least two search characters.");
+      return;
+    }
+    setError("");
+    try {
+      const response = await apiRequest<DMUserSearchResponse>(
+        `/api/dms/users?query=${encodeURIComponent(query)}`,
+        {},
+        token,
+      );
+      setSearchResults(response.users);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not search users");
+    }
+  }
+
+  async function sendMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!selectedUser || !text) {
+      return;
+    }
+    setSending(true);
+    setError("");
+    try {
+      const message = await apiRequest<DMMessage>(
+        "/api/dms/messages",
+        {
+          method: "POST",
+          body: JSON.stringify({ recipient_id: selectedUser.id, text }),
+        },
+        token,
+      );
+      setMessages((current) => [...current, message]);
+      setDraft("");
+      setRefreshNumber((value) => value + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not send message");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function openConversation(person: DMUser) {
+    setSelectedUser(person);
+    setSearchResults([]);
+    setError("");
+  }
+
+  return (
+    <section className="knock-card dm-card">
+      <header className="knock-heading">
+        <div>
+          <p className="eyebrow">Private conversations</p>
+          <h2>Messages</h2>
+        </div>
+        <span className={`socket-status socket-status--${socketStatus}`}>
+          {socketStatus}
+        </span>
+      </header>
+
+      <div className="dm-layout">
+        <aside className="dm-sidebar">
+          <form className="dm-search" onSubmit={searchUsers}>
+            <input
+              aria-label="Search users"
+              maxLength={30}
+              name="query"
+              placeholder="Nickname or phone"
+              required
+            />
+            <button className="button" type="submit">Find</button>
+          </form>
+
+          {searchResults.length > 0 && (
+            <div className="dm-search-results">
+              {searchResults.map((person) => (
+                <button key={person.id} onClick={() => openConversation(person)} type="button">
+                  <strong>{person.nickname}</strong>
+                  <span>{person.phone}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="dm-conversations">
+            {conversations.length === 0 ? (
+              <p>No conversations yet.</p>
+            ) : (
+              conversations.map((conversation) => (
+                <button
+                  className={selectedUser?.id === conversation.user.id ? "active" : ""}
+                  key={conversation.user.id}
+                  onClick={() => openConversation(conversation.user)}
+                  type="button"
+                >
+                  <span>
+                    <strong>{conversation.user.nickname}</strong>
+                    <small>{conversation.last_message.text}</small>
+                  </span>
+                  {conversation.unread_count > 0 && (
+                    <b>{conversation.unread_count}</b>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        </aside>
+
+        <div className="dm-chat">
+          {!selectedUser ? (
+            <div className="dm-empty">
+              <strong>Select a conversation</strong>
+              <span>Or find a verified user by nickname or phone.</span>
+            </div>
+          ) : (
+            <>
+              <header className="dm-chat-heading">
+                <strong>{selectedUser.nickname}</strong>
+                <span>{selectedUser.phone}</span>
+              </header>
+              <div className="dm-messages" aria-live="polite">
+                {loading ? (
+                  <p className="dm-loading">Loading messages...</p>
+                ) : messages.length === 0 ? (
+                  <p className="dm-loading">Start this private conversation.</p>
+                ) : (
+                  messages.map((message) => (
+                    <article
+                      className={message.sender_id === user.id ? "dm-message dm-message--own" : "dm-message"}
+                      key={message.id}
+                    >
+                      <p>{message.text}</p>
+                      <time dateTime={message.created_at}>
+                        {new Date(message.created_at).toLocaleString()}
+                      </time>
+                    </article>
+                  ))
+                )}
+              </div>
+              <form className="dm-composer" onSubmit={sendMessage}>
+                <textarea
+                  maxLength={1000}
+                  onChange={(event) => setDraft(event.target.value)}
+                  placeholder={`Message ${selectedUser.nickname}`}
+                  rows={2}
+                  value={draft}
+                />
+                <button className="button" disabled={sending || !draft.trim()} type="submit">
+                  {sending ? "Sending..." : "Send"}
+                </button>
+              </form>
+            </>
+          )}
+        </div>
+      </div>
+      {error && <p className="knock-error">{error}</p>}
+    </section>
+  );
+}
+
 function SignedInApp({
   token,
   user,
@@ -1031,9 +1708,79 @@ function SignedInApp({
   onLogout: () => void;
 }) {
   const [places, setPlaces] = useState<CurrentPlace[]>([]);
-  const [mainView, setMainView] = useState<"knock" | "dig" | "explore">(
+  const [mainView, setMainView] = useState<
+    "knock" | "dig" | "explore" | "forum" | "dms"
+  >(
     "knock",
   );
+  const [dmUnread, setDmUnread] = useState(0);
+  const [dmNotificationNumber, setDmNotificationNumber] = useState(0);
+  const [dmSocketStatus, setDmSocketStatus] = useState<
+    "connecting" | "connected" | "disconnected"
+  >("connecting");
+
+  useEffect(() => {
+    let active = true;
+    let reconnectTimer: number | undefined;
+    let socket: WebSocket | null = null;
+    let reconnectAttempts = 0;
+
+    function connect() {
+      if (!active) {
+        return;
+      }
+      setDmSocketStatus("connecting");
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      socket = new WebSocket(
+        `${protocol}//${window.location.host}/ws/dms?token=${encodeURIComponent(token)}`,
+      );
+      socket.onmessage = (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "ready") {
+          reconnectAttempts = 0;
+          setDmSocketStatus("connected");
+        } else if (payload.type === "message") {
+          setDmNotificationNumber((value) => value + 1);
+          if (payload.message?.recipient_id === user.id) {
+            setDmUnread((value) => value + 1);
+          }
+        }
+      };
+      socket.onclose = (event) => {
+        if (!active) {
+          return;
+        }
+        setDmSocketStatus("disconnected");
+        if (event.code !== 4401 && reconnectAttempts < 5) {
+          reconnectAttempts += 1;
+          reconnectTimer = window.setTimeout(connect, 2_000);
+        }
+      };
+    }
+
+    apiRequest<DMConversationListResponse>(
+      "/api/dms/conversations",
+      {},
+      token,
+    )
+      .then((response) =>
+        setDmUnread(
+          response.conversations.reduce(
+            (total, conversation) => total + conversation.unread_count,
+            0,
+          ),
+        ),
+      )
+      .catch(() => undefined);
+    connect();
+    return () => {
+      active = false;
+      if (reconnectTimer !== undefined) {
+        window.clearTimeout(reconnectTimer);
+      }
+      socket?.close();
+    };
+  }, [token, user.id]);
 
   return (
     <main className="app-shell">
@@ -1092,13 +1839,37 @@ function SignedInApp({
             >
               Explore
             </button>
+            <button
+              className={mainView === "forum" ? "active" : ""}
+              onClick={() => setMainView("forum")}
+              type="button"
+            >
+              Forum
+            </button>
+            <button
+              className={mainView === "dms" ? "active" : ""}
+              onClick={() => setMainView("dms")}
+              type="button"
+            >
+              Messages{dmUnread > 0 ? ` (${dmUnread})` : ""}
+            </button>
           </nav>
           {mainView === "knock" ? (
             <KnockPanel places={places} token={token} user={user} />
           ) : mainView === "dig" ? (
             <DigPanel places={places} token={token} />
-          ) : (
+          ) : mainView === "explore" ? (
             <ExplorePanel places={places} token={token} />
+          ) : mainView === "forum" ? (
+            <ForumPanel places={places} token={token} />
+          ) : (
+            <DMPanel
+              notificationNumber={dmNotificationNumber}
+              onUnreadChange={setDmUnread}
+              socketStatus={dmSocketStatus}
+              token={token}
+              user={user}
+            />
           )}
         </div>
       </div>

@@ -371,6 +371,7 @@ dd {
 .main-tabs {
   display: flex;
   gap: 0.35rem;
+  overflow-x: auto;
   padding: 0.3rem;
   border: 1px solid #d0dfd5;
   border-radius: 0.8rem;
@@ -378,7 +379,7 @@ dd {
 }
 
 .main-tabs button {
-  flex: 1;
+  flex: 1 0 5.5rem;
   padding: 0.7rem;
   border: 0;
   border-radius: 0.6rem;
@@ -807,6 +808,423 @@ dd {
   flex: 0 0 auto;
 }
 
+.forum-mode-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 0.65rem;
+  background: #edf3ef;
+}
+
+.forum-mode-tabs button {
+  padding: 0.45rem 0.6rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #61766f;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.forum-mode-tabs button.active {
+  background: #fff;
+  color: #173b34;
+  box-shadow: 0 0.1rem 0.35rem rgb(23 59 52 / 10%);
+}
+
+.forum-composer {
+  padding: 0 1rem 1rem;
+  border-bottom: 1px solid #e2ebe6;
+}
+
+.forum-composer textarea {
+  resize: vertical;
+}
+
+.forum-composer-footer,
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.forum-composer-footer {
+  justify-content: space-between;
+}
+
+.checkbox-label {
+  grid-template-columns: auto 1fr;
+  font-weight: 700;
+}
+
+.checkbox-label input {
+  width: auto;
+  accent-color: #28745f;
+}
+
+.forum-location-empty {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0 1rem 1rem;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: #edf3ef;
+  color: #61766f;
+}
+
+.forum-location-empty strong {
+  color: #173b34;
+}
+
+.forum-personal-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  padding: 0 1rem 1rem;
+}
+
+.forum-personal-summary span {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.65rem;
+  border-radius: 0.65rem;
+  background: #edf3ef;
+  color: #61766f;
+  font-size: 0.72rem;
+}
+
+.forum-personal-summary strong {
+  color: #173b34;
+  font-size: 1.1rem;
+}
+
+.forum-feed {
+  display: grid;
+  min-height: 20rem;
+  gap: 1rem;
+  padding: 1rem;
+  background: #f8faf9;
+}
+
+.forum-post {
+  overflow: hidden;
+  border: 1px solid #d8e5de;
+  border-radius: 0.85rem;
+  background: #fff;
+}
+
+.forum-post-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0.9rem;
+  border-bottom: 1px solid #e2ebe6;
+}
+
+.forum-post-heading > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.forum-post-heading span,
+.forum-post-heading time,
+.forum-comment time,
+.forum-no-comments {
+  color: #61766f;
+  font-size: 0.72rem;
+}
+
+.forum-post-heading span:first-child {
+  color: #173b34;
+  font-weight: 800;
+}
+
+.forum-post-heading time {
+  text-align: right;
+}
+
+.forum-post-copy {
+  padding: 0.9rem;
+}
+
+.forum-post-copy h3,
+.forum-post-copy p,
+.forum-comment p,
+.forum-no-comments {
+  margin: 0;
+}
+
+.forum-post-copy h3 {
+  margin-bottom: 0.4rem;
+}
+
+.forum-post-copy p,
+.forum-comment p {
+  color: #314b44;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.forum-votes {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.9rem 0.8rem;
+}
+
+.forum-votes button {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #d0dfd5;
+  border-radius: 0.5rem;
+  background: #f7faf8;
+  color: #536c65;
+  font-weight: 800;
+}
+
+.forum-votes button.active {
+  border-color: #8ebdad;
+  background: #e0f5e8;
+  color: #17623f;
+}
+
+.forum-votes strong {
+  min-width: 2rem;
+  text-align: center;
+}
+
+.forum-comments {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.8rem 0.9rem;
+  border-top: 1px solid #e2ebe6;
+  background: #fbfcfb;
+}
+
+.forum-comment {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.forum-comment + .forum-comment {
+  padding-top: 0.65rem;
+  border-top: 1px solid #e2ebe6;
+}
+
+.forum-comment-form {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.8rem 0.9rem;
+  border-top: 1px solid #e2ebe6;
+}
+
+.forum-comment-form .button {
+  flex: 0 0 auto;
+}
+
+.dm-layout {
+  display: grid;
+  min-height: 32rem;
+  border-top: 1px solid #e2ebe6;
+}
+
+.dm-sidebar {
+  display: grid;
+  align-content: start;
+  border-bottom: 1px solid #e2ebe6;
+  background: #f8faf9;
+}
+
+.dm-search {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0.8rem;
+  border-bottom: 1px solid #e2ebe6;
+}
+
+.dm-search .button {
+  flex: 0 0 auto;
+  padding: 0.7rem;
+}
+
+.dm-search-results {
+  display: grid;
+  padding: 0.45rem;
+  border-bottom: 1px solid #e2ebe6;
+  background: #fff;
+}
+
+.dm-search-results button,
+.dm-conversations button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem;
+  border: 0;
+  border-radius: 0.6rem;
+  background: transparent;
+  color: #173b34;
+  text-align: left;
+}
+
+.dm-search-results button:hover,
+.dm-conversations button:hover,
+.dm-conversations button.active {
+  background: #e5eee9;
+}
+
+.dm-search-results button,
+.dm-search-results button span,
+.dm-conversations button > span {
+  min-width: 0;
+}
+
+.dm-search-results strong,
+.dm-search-results span,
+.dm-conversations strong,
+.dm-conversations small {
+  display: block;
+}
+
+.dm-search-results span,
+.dm-conversations small,
+.dm-conversations > p {
+  color: #61766f;
+  font-size: 0.72rem;
+}
+
+.dm-conversations {
+  display: grid;
+  gap: 0.2rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  padding: 0.45rem;
+}
+
+.dm-conversations > p {
+  margin: 0;
+  padding: 0.75rem;
+}
+
+.dm-conversations small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dm-conversations b {
+  min-width: 1.5rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 999px;
+  background: #28745f;
+  color: #fff;
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+.dm-chat {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: auto minmax(18rem, 1fr) auto;
+  background: #fff;
+}
+
+.dm-empty {
+  display: grid;
+  min-height: 22rem;
+  grid-row: 1 / -1;
+  place-content: center;
+  gap: 0.3rem;
+  padding: 2rem;
+  color: #61766f;
+  text-align: center;
+}
+
+.dm-empty strong {
+  color: #173b34;
+}
+
+.dm-chat-heading {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.8rem 1rem;
+  border-bottom: 1px solid #e2ebe6;
+}
+
+.dm-chat-heading span {
+  color: #61766f;
+  font-size: 0.72rem;
+}
+
+.dm-messages {
+  display: flex;
+  max-height: 32rem;
+  flex-direction: column;
+  gap: 0.65rem;
+  overflow-y: auto;
+  padding: 1rem;
+  background: #f8faf9;
+}
+
+.dm-message {
+  align-self: flex-start;
+  width: min(86%, 28rem);
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #d8e5de;
+  border-radius: 0.8rem 0.8rem 0.8rem 0.2rem;
+  background: #fff;
+}
+
+.dm-message--own {
+  align-self: flex-end;
+  border-color: #9fc7b8;
+  border-radius: 0.8rem 0.8rem 0.2rem;
+  background: #e8f4ee;
+}
+
+.dm-message p,
+.dm-loading {
+  margin: 0;
+}
+
+.dm-message p {
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.dm-message time {
+  display: block;
+  margin-top: 0.3rem;
+  color: #61766f;
+  font-size: 0.65rem;
+  text-align: right;
+}
+
+.dm-loading {
+  margin: auto;
+  color: #61766f;
+}
+
+.dm-composer {
+  display: flex;
+  align-items: end;
+  gap: 0.5rem;
+  padding: 0.8rem;
+  border-top: 1px solid #e2ebe6;
+}
+
+.dm-composer textarea {
+  resize: vertical;
+}
+
+.dm-composer .button {
+  flex: 0 0 auto;
+}
+
 @media (min-width: 760px) {
   .auth-card {
     display: grid;
@@ -835,5 +1253,18 @@ dd {
 
   .explore-media-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dm-layout {
+    grid-template-columns: 15rem minmax(0, 1fr);
+  }
+
+  .dm-sidebar {
+    border-right: 1px solid #e2ebe6;
+    border-bottom: 0;
+  }
+
+  .dm-conversations {
+    max-height: 30rem;
   }
 }
