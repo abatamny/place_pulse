@@ -1,6 +1,6 @@
 # PlacePulse
 
-PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. The project currently includes the runnable foundation and the Step 2 user authentication flow.
+PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. The project currently includes the runnable foundation, authentication, and Step 3 place/presence tracking.
 
 ## Requirements
 
@@ -29,6 +29,9 @@ The defaults work without creating an `.env` file. To change them, copy `.env.ex
 | `APP_PORT` | `8080` | Public application port |
 | `APP_ENV` | `development` | Returns verification codes in the UI for localhost use |
 | `VERIFICATION_SECRET` | local development value | Hashes temporary verification codes; change it outside localhost |
+| `OSM_USER_AGENT` | `PlacePulse-Course-Project/0.1` | Identifies backend requests to OpenStreetMap services |
+| `NOMINATIM_URL` | public Nominatim URL | Reverse-geocoding endpoint |
+| `OVERPASS_URL` | public Overpass URL | Containing-place and boundary endpoint |
 | `POSTGRES_DB` | `placepulse` | PostgreSQL database name |
 | `POSTGRES_USER` | `placepulse` | PostgreSQL user |
 | `POSTGRES_PASSWORD` | `placepulse` | Local PostgreSQL password |
@@ -44,7 +47,16 @@ Do not commit `.env`; it is ignored by Git.
 
 Passwords are Argon2-hashed. Login creates a random, revocable session whose token hash is stored in PostgreSQL; logging out deletes that session.
 
-## Authentication tests
+## Location and presence flow
+
+1. Log in and select **Share my location**.
+2. Allow the browser's location prompt. Localhost is treated as a secure browser context for geolocation.
+3. The backend resolves the coordinates through OpenStreetMap and displays nested places, such as a campus and its building.
+4. While location sharing remains enabled, the page sends a heartbeat every 30 seconds. Stored PostGIS boundaries are reused instead of contacting OpenStreetMap again for known places.
+
+Presence expires after 90 seconds without a heartbeat. A completed presence becomes a saved visit, and three completed visits at a place promote the user from `VISITOR` to `BELONG`.
+
+## Automated tests
 
 With the database service running, execute:
 
@@ -52,7 +64,7 @@ With the database service running, execute:
 docker compose run --build --rm backend pytest -q
 ```
 
-The tests automatically create and use a separate `placepulse_test` database. They do not remove or modify users created through the application.
+The tests automatically create and use a separate PostGIS-enabled `placepulse_test` database. OpenStreetMap is replaced with a deterministic fake resolver, so tests do not depend on live network services or modify users created through the application.
 
 ## Startup smoke test
 
