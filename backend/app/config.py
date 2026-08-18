@@ -11,6 +11,15 @@ class Settings:
     verification_secret: str = os.getenv(
         "VERIFICATION_SECRET", "local-development-secret"
     )
+    osm_user_agent: str = os.getenv(
+        "OSM_USER_AGENT", "PlacePulse-Course-Project/0.1"
+    )
+    nominatim_url: str = os.getenv(
+        "NOMINATIM_URL", "https://nominatim.openstreetmap.org"
+    ).rstrip("/")
+    overpass_url: str = os.getenv(
+        "OVERPASS_URL", "https://overpass-api.de/api"
+    ).rstrip("/")
     db_host: str = os.getenv("DB_HOST", "db")
     db_port: int = int(os.getenv("DB_PORT", "5432"))
     db_name: str = os.getenv("POSTGRES_DB", "placepulse")
