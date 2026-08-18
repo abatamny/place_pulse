@@ -19,6 +19,21 @@ type LoginResponse = {
   user: User;
 };
 
+type CurrentPlace = {
+  id: number;
+  osm_type: string;
+  osm_id: number;
+  name: string;
+  parent_place_id: number | null;
+  rank: "VISITOR" | "BELONG";
+  completed_visits: number;
+};
+
+type PresenceResponse = {
+  places: CurrentPlace[];
+  expires_in_seconds: number;
+};
+
 const TOKEN_KEY = "placepulse-session";
 
 async function apiRequest<T>(
@@ -48,6 +63,152 @@ async function apiRequest<T>(
     return undefined as T;
   }
   return response.json() as Promise<T>;
+}
+
+function PresencePanel({ token }: { token: string }) {
+  const [requestNumber, setRequestNumber] = useState(0);
+  const [places, setPlaces] = useState<CurrentPlace[]>([]);
+  const [status, setStatus] = useState<"idle" | "requesting" | "active">("idle");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    apiRequest<PresenceResponse>("/api/presence/current", {}, token)
+      .then((response) => setPlaces(response.places))
+      .catch(() => undefined);
+  }, [token]);
+
+  useEffect(() => {
+    if (requestNumber === 0) {
+      return;
+    }
+    if (!navigator.geolocation) {
+      setError("This browser does not support location sharing.");
+      return;
+    }
+
+    let active = true;
+    let sending = false;
+    let latestCoordinates: { latitude: number; longitude: number } | null = null;
+    setStatus("requesting");
+    setError("");
+
+    async function sendHeartbeat(latitude: number, longitude: number) {
+      if (sending) {
+        return;
+      }
+      sending = true;
+      try {
+        const response = await apiRequest<PresenceResponse>(
+          "/api/presence/heartbeat",
+          {
+            method: "POST",
+            body: JSON.stringify({ latitude, longitude }),
+          },
+          token,
+        );
+        if (active) {
+          setPlaces(response.places);
+          setStatus("active");
+          setError("");
+        }
+      } catch (caught) {
+        if (active) {
+          setError(
+            caught instanceof Error ? caught.message : "Could not detect your place",
+          );
+          setStatus("idle");
+        }
+      } finally {
+        sending = false;
+      }
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        latestCoordinates = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
+        void sendHeartbeat(
+          latestCoordinates.latitude,
+          latestCoordinates.longitude,
+        );
+      },
+      (locationError) => {
+        if (active) {
+          setError(locationError.message || "Location permission was not granted.");
+          setStatus("idle");
+        }
+      },
+      { enableHighAccuracy: true, maximumAge: 15_000, timeout: 12_000 },
+    );
+
+    const intervalId = window.setInterval(() => {
+      if (latestCoordinates) {
+        void sendHeartbeat(
+          latestCoordinates.latitude,
+          latestCoordinates.longitude,
+        );
+      }
+    }, 30_000);
+
+    const leaveOnPageExit = () => {
+      void fetch("/api/presence/leave", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        keepalive: true,
+      });
+    };
+    window.addEventListener("pagehide", leaveOnPageExit);
+
+    return () => {
+      active = false;
+      navigator.geolocation.clearWatch(watchId);
+      window.clearInterval(intervalId);
+      window.removeEventListener("pagehide", leaveOnPageExit);
+    };
+  }, [requestNumber, token]);
+
+  return (
+    <section className="presence-panel">
+      <div className="presence-heading">
+        <div>
+          <p className="eyebrow">Your place</p>
+          <h3>{places.length ? "Location detected" : "Share your location"}</h3>
+        </div>
+        {status === "active" && <span className="live-badge">Live</span>}
+      </div>
+
+      {places.length > 0 && (
+        <ol className="place-list">
+          {places.map((place) => (
+            <li key={place.id}>
+              <span>{place.name}</span>
+              <small>{place.rank}</small>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {error && <p className="location-error">{error}</p>}
+      <button
+        className="button"
+        disabled={status === "requesting"}
+        onClick={() => setRequestNumber((value) => value + 1)}
+        type="button"
+      >
+        {status === "requesting"
+          ? "Detecting place..."
+          : status === "active"
+            ? "Refresh location"
+            : "Share my location"}
+      </button>
+      <p className="location-note">
+        Location is sent only while this page is open. Presence expires after 90
+        seconds without a heartbeat.
+      </p>
+    </section>
+  );
 }
 
 function App() {
@@ -169,6 +330,11 @@ function App() {
 
   async function handleLogout() {
     if (token) {
+      await apiRequest<void>(
+        "/api/presence/leave",
+        { method: "POST" },
+        token,
+      ).catch(() => undefined);
       await apiRequest<void>("/api/auth/logout", { method: "POST" }, token).catch(
         () => undefined,
       );
@@ -187,8 +353,8 @@ function App() {
           <p className="eyebrow">PlacePulse</p>
           <h1>Know what is happening here.</h1>
           <p>
-            Sign in now. Place discovery and live local features arrive in the
-            next project steps.
+            Sign in and share your location to discover the OpenStreetMap places
+            around you.
           </p>
         </header>
 
@@ -209,6 +375,7 @@ function App() {
                   <dd>Authenticated</dd>
                 </div>
               </dl>
+              {token && <PresencePanel token={token} />}
               <button className="button button--secondary" onClick={handleLogout}>
                 Log out
               </button>
@@ -350,4 +517,3 @@ function App() {
 }
 
 export default App;
-
