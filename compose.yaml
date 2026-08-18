@@ -26,10 +26,12 @@ services:
       OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api}
       AI_PROVIDER: ${AI_PROVIDER:-openai}
       AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1/responses}
+      AI_API_FORMAT: ${AI_API_FORMAT:-responses}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}
       AI_MODERATION_URL: ${AI_MODERATION_URL:-https://api.openai.com/v1/moderations}
       AI_MODERATION_MODEL: ${AI_MODERATION_MODEL:-omni-moderation-latest}
+      AI_MEDIA_MODERATION_MODE: ${AI_MEDIA_MODERATION_MODE:-moderations}
       AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-8}
       DB_HOST: db
       DB_PORT: 5432
@@ -60,8 +62,12 @@ services:
       APP_ENV: ${APP_ENV:-development}
       AI_PROVIDER: ${AI_PROVIDER:-openai}
       AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1/responses}
+      AI_API_FORMAT: ${AI_API_FORMAT:-responses}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}
+      AI_MODERATION_URL: ${AI_MODERATION_URL:-https://api.openai.com/v1/moderations}
+      AI_MODERATION_MODEL: ${AI_MODERATION_MODEL:-omni-moderation-latest}
+      AI_MEDIA_MODERATION_MODE: ${AI_MEDIA_MODERATION_MODE:-moderations}
       AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-8}
       DB_HOST: db
       DB_PORT: 5432
