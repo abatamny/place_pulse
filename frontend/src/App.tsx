@@ -865,7 +865,10 @@ function DigPanel({
   }
 
   return (
-    <div className="dig-map-layer" aria-live="polite">
+    <div
+      className={`dig-map-layer ${selectedDig ? "dig-map-layer--expanded" : ""}`}
+      aria-live="polite"
+    >
       {pendingDig && (
         <div
           className="dig-map-marker dig-map-marker--pending"
