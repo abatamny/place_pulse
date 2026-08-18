@@ -15,6 +15,7 @@ services:
     restart: unless-stopped
 
   backend:
+    image: placepulse-backend
     build:
       context: ./backend
     environment:
@@ -23,6 +24,11 @@ services:
       OSM_USER_AGENT: ${OSM_USER_AGENT:-PlacePulse-Course-Project/0.1}
       NOMINATIM_URL: ${NOMINATIM_URL:-https://nominatim.openstreetmap.org}
       OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api}
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1/responses}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-8}
       DB_HOST: db
       DB_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-placepulse}
@@ -43,6 +49,27 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  worker:
+    image: placepulse-backend
+    command: ["python", "-m", "app.worker"]
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1/responses}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-8}
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-placepulse}
+      POSTGRES_USER: ${POSTGRES_USER:-placepulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-placepulse}
+      MEDIA_ROOT: /app/media
+    depends_on:
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
   web:
