@@ -195,8 +195,6 @@ Build the small frontend needed for each feature together with its backend. Do n
 - Improve the queue to prevent one spammer from starving other users.
 - Strengthen hallucination and jailbreak defenses.
 - Add the place forum, then DMs/live notifications if time remains.
-- Add cold-seed demo users/posts later only if the optional forum is implemented and the manual flows already work.
-- Replace the external AI provider with a local LLM only if the application remains easy to run.
 - Add Azure deployment only after the local version and tests are reliable.
 
 Each optional feature must receive its own essential tests before starting another optional feature.
@@ -206,7 +204,7 @@ Each optional feature must receive its own essential tests before starting anoth
 - Complete the required unit, integration, system/E2E, security, and stress suites.
 - Run the project and tests from a fresh Docker environment and fix first-run issues.
 - Add GitHub Actions to run the automated test suite.
-- Finish the README, feature-to-test list, risk assessment, demonstration video, and final report.
+- Finish the README, feature-to-test list, risk assessment, and final report.
 
 During Steps 1-8, add only the essential unit/integration tests needed to protect completed work. Step 9 completes the cross-feature, edge-case, security, and load coverage; it is not the first time the features are tested.
 
