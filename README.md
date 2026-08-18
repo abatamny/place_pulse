@@ -1,6 +1,6 @@
 # PlacePulse
 
-PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. This repository currently contains the runnable project foundation from Step 1 of `plan.md`.
+PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. The project currently includes the runnable foundation and the Step 2 user authentication flow.
 
 ## Requirements
 
@@ -27,11 +27,32 @@ The defaults work without creating an `.env` file. To change them, copy `.env.ex
 | Variable | Default | Purpose |
 |---|---|---|
 | `APP_PORT` | `8080` | Public application port |
+| `APP_ENV` | `development` | Returns verification codes in the UI for localhost use |
+| `VERIFICATION_SECRET` | local development value | Hashes temporary verification codes; change it outside localhost |
 | `POSTGRES_DB` | `placepulse` | PostgreSQL database name |
 | `POSTGRES_USER` | `placepulse` | PostgreSQL user |
 | `POSTGRES_PASSWORD` | `placepulse` | Local PostgreSQL password |
 
 Do not commit `.env`; it is ignored by Git.
+
+## Local authentication flow
+
+1. Open <http://localhost:8080> and choose **Register**.
+2. Enter a nickname, phone number, and password of at least eight characters.
+3. In development mode, the six-digit verification code is shown directly on the verification screen. No SMS service is required for the course demo.
+4. Verify the phone number, then log in with the same phone number and password.
+
+Passwords are Argon2-hashed. Login creates a random, revocable session whose token hash is stored in PostgreSQL; logging out deletes that session.
+
+## Authentication tests
+
+With the database service running, execute:
+
+```sh
+docker compose run --build --rm backend pytest -q
+```
+
+The tests automatically create and use a separate `placepulse_test` database. They do not remove or modify users created through the application.
 
 ## Startup smoke test
 
@@ -66,4 +87,3 @@ docker compose down -v
 ```
 
 The reset command permanently removes the local database and media volumes.
-

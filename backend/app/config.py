@@ -7,6 +7,10 @@ from sqlalchemy import URL
 
 @dataclass(frozen=True)
 class Settings:
+    app_env: str = os.getenv("APP_ENV", "development")
+    verification_secret: str = os.getenv(
+        "VERIFICATION_SECRET", "local-development-secret"
+    )
     db_host: str = os.getenv("DB_HOST", "db")
     db_port: int = int(os.getenv("DB_PORT", "5432"))
     db_name: str = os.getenv("POSTGRES_DB", "placepulse")
@@ -27,4 +31,3 @@ class Settings:
 
 
 settings = Settings()
-

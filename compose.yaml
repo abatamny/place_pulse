@@ -18,6 +18,8 @@ services:
     build:
       context: ./backend
     environment:
+      APP_ENV: ${APP_ENV:-development}
+      VERIFICATION_SECRET: ${VERIFICATION_SECRET:-local-development-secret}
       DB_HOST: db
       DB_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-placepulse}
