@@ -1,6 +1,8 @@
 import asyncio
+import base64
 import json
 import re
+from dataclasses import dataclass
 from typing import Protocol, Sequence, TypeVar
 
 import httpx
@@ -82,8 +84,18 @@ class RoutingDecision(BaseModel):
         return value.strip()
 
 
+@dataclass(frozen=True)
+class ImageModerationInput:
+    content_type: str
+    data: bytes
+
+
 class AIAdapter(Protocol):
     async def moderate_text(self, text: str) -> object: ...
+
+    async def moderate_images(
+        self, images: Sequence[ImageModerationInput]
+    ) -> object: ...
 
     async def route_message(
         self, text: str, places: Sequence[PlaceRouteOption]
@@ -127,11 +139,15 @@ class OpenAIAdapter:
         api_url: str,
         api_key: str,
         model: str,
+        moderation_url: str,
+        moderation_model: str,
         request_timeout: float,
     ) -> None:
         self.api_url = api_url
         self.api_key = api_key
         self.model = model
+        self.moderation_url = moderation_url
+        self.moderation_model = moderation_model
         self.request_timeout = request_timeout
 
     async def moderate_text(self, text: str) -> ModerationDecision:
@@ -146,6 +162,70 @@ class OpenAIAdapter:
             untrusted_payload=prompt,
             schema_name="moderation_decision",
             response_model=ModerationDecision,
+        )
+
+    async def moderate_images(
+        self, images: Sequence[ImageModerationInput]
+    ) -> ModerationDecision:
+        if not self.api_key:
+            raise AIProviderError("AI_API_KEY is not configured")
+        if not images:
+            raise AIInputError("At least one image is required for moderation")
+
+        moderation_input = []
+        for image in images:
+            encoded = base64.b64encode(image.data).decode("ascii")
+            moderation_input.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{image.content_type};base64,{encoded}"
+                    },
+                }
+            )
+
+        try:
+            async with httpx.AsyncClient(timeout=self.request_timeout) as client:
+                response = await client.post(
+                    self.moderation_url,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.moderation_model,
+                        "input": moderation_input,
+                    },
+                )
+                response.raise_for_status()
+                response_data = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise AIProviderError("AI provider request failed") from exc
+
+        if not isinstance(response_data, dict):
+            raise AIOutputError("AI provider returned an invalid response")
+        results = response_data.get("results")
+        if not isinstance(results, list) or len(results) != 1:
+            raise AIOutputError("AI provider returned an invalid moderation result")
+        result = results[0]
+        if not isinstance(result, dict) or not isinstance(result.get("flagged"), bool):
+            raise AIOutputError("AI provider returned an invalid moderation result")
+        category_values = result.get("categories", {})
+        if not isinstance(category_values, dict):
+            raise AIOutputError("AI provider returned invalid moderation categories")
+        categories = [
+            str(name).replace("/", "_").replace("-", "_")
+            for name, flagged in category_values.items()
+            if flagged is True
+        ]
+        return ModerationDecision(
+            approved=not result["flagged"],
+            reason=(
+                "Media passed moderation"
+                if not result["flagged"]
+                else "Media was rejected by moderation"
+            ),
+            categories=categories,
         )
 
     async def route_message(
@@ -257,6 +337,8 @@ def create_ai_adapter() -> AIAdapter:
         api_url=settings.ai_api_url,
         api_key=settings.ai_api_key,
         model=settings.ai_model,
+        moderation_url=settings.ai_moderation_url,
+        moderation_model=settings.ai_moderation_model,
         request_timeout=settings.ai_timeout_seconds,
     )
 
@@ -309,6 +391,33 @@ async def moderate_before_publication(
             categories=["prompt_injection"],
         )
     except AIError:
+        return ModerationDecision(
+            approved=False,
+            reason="Moderation is temporarily unavailable",
+            categories=["ai_failure"],
+        )
+
+
+async def moderate_media_before_publication(
+    adapter: AIAdapter,
+    images: Sequence[ImageModerationInput],
+    *,
+    timeout_seconds: float | None = None,
+) -> ModerationDecision:
+    if not 1 <= len(images) <= 3:
+        return ModerationDecision(
+            approved=False,
+            reason="Moderation is temporarily unavailable",
+            categories=["ai_failure"],
+        )
+
+    timeout = timeout_seconds or settings.ai_timeout_seconds
+    try:
+        raw_decision = await asyncio.wait_for(
+            adapter.moderate_images(images), timeout=timeout
+        )
+        return ModerationDecision.model_validate(raw_decision)
+    except Exception:
         return ModerationDecision(
             approved=False,
             reason="Moderation is temporarily unavailable",

@@ -146,6 +146,30 @@ class KnockMessage(Base):
     )
 
 
+class Dig(Base):
+    __tablename__ = "digs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    place_id: Mapped[int] = mapped_column(
+        ForeignKey("places.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    media_type: Mapped[str] = mapped_column(String(10))
+    content_type: Mapped[str] = mapped_column(String(40))
+    storage_name: Mapped[str] = mapped_column(String(80), unique=True)
+    original_filename: Mapped[str] = mapped_column(String(120))
+    file_size: Mapped[int] = mapped_column(Integer)
+    moderation_status: Mapped[str] = mapped_column(String(20), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=False
+    )
+
+
 class AIJob(Base):
     __tablename__ = "ai_jobs"
 

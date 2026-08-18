@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.auth import auth_router, websocket_router
 from app.config import settings
 from app.database import SessionLocal, create_schema
+from app.digs import digs_router
 from app.knock import knock_router, knock_websocket_router
 from app.places import places_router
 
@@ -24,6 +25,7 @@ app.include_router(websocket_router)
 app.include_router(places_router)
 app.include_router(knock_router)
 app.include_router(knock_websocket_router)
+app.include_router(digs_router)
 
 
 @app.get("/api/health")

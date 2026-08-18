@@ -111,3 +111,22 @@ class KnockMessageResponse(BaseModel):
 
 class KnockHistoryResponse(BaseModel):
     messages: list[KnockMessageResponse]
+
+
+class DigResponse(BaseModel):
+    id: int
+    place_id: int
+    place_name: str
+    user_id: int
+    nickname: str
+    media_type: str
+    content_type: str
+    original_filename: str
+    file_size: int
+    media_url: str
+    created_at: datetime
+    expires_at: datetime
+
+
+class DigFeedResponse(BaseModel):
+    digs: list[DigResponse]
