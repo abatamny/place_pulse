@@ -1,6 +1,6 @@
 # PlacePulse
 
-PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. The project currently includes the runnable foundation, authentication, place/presence tracking, and the Step 4 AI/worker foundation.
+PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. The project currently includes authentication, place/presence tracking, AI-backed moderation, and live place-scoped KNOCK messages.
 
 ## Requirements
 
@@ -60,6 +60,12 @@ Passwords are Argon2-hashed. Login creates a random, revocable session whose tok
 4. While location sharing remains enabled, the page sends a heartbeat every 30 seconds. Stored PostGIS boundaries are reused instead of contacting OpenStreetMap again for known places.
 
 Presence expires after 90 seconds without a heartbeat. A completed presence becomes a saved visit, and three completed visits at a place promote the user from `VISITOR` to `BELONG`.
+
+## KNOCK live messages
+
+After sharing a location, the main screen connects to the authenticated KNOCK WebSocket and loads recent messages from every active place layer. Messages are routed to one matching layer, so a building KNOCK is not broadcast to unrelated places. Accepted messages are stored in PostgreSQL and return after reconnecting.
+
+`VISITOR` messages are moderated before publication and fail closed if the AI provider is unavailable. `BELONG` messages appear immediately and create a PostgreSQL background job for the worker to check afterward. Set `AI_API_KEY` in `.env` to send visitor messages or route messages when OpenStreetMap returns multiple nested places.
 
 ## AI moderation and worker
 
