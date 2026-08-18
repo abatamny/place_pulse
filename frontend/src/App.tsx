@@ -1,4 +1,9 @@
-import { type FormEvent, useEffect, useState } from "react";
+import {
+  type FormEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 type View = "login" | "register" | "verify";
 
@@ -34,6 +39,21 @@ type PresenceResponse = {
   expires_in_seconds: number;
 };
 
+type KnockMessage = {
+  id: number;
+  place_id: number;
+  place_name: string;
+  user_id: number;
+  nickname: string;
+  author_rank: "VISITOR" | "BELONG";
+  text: string;
+  created_at: string;
+};
+
+type KnockHistoryResponse = {
+  messages: KnockMessage[];
+};
+
 const TOKEN_KEY = "placepulse-session";
 
 async function apiRequest<T>(
@@ -65,17 +85,42 @@ async function apiRequest<T>(
   return response.json() as Promise<T>;
 }
 
-function PresencePanel({ token }: { token: string }) {
+function mergeMessages(messages: KnockMessage[]): KnockMessage[] {
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  return [...byId.values()]
+    .sort(
+      (left, right) =>
+        new Date(left.created_at).getTime() -
+        new Date(right.created_at).getTime(),
+    )
+    .slice(-100);
+}
+
+function PresencePanel({
+  token,
+  places,
+  onPlacesChange,
+}: {
+  token: string;
+  places: CurrentPlace[];
+  onPlacesChange: (places: CurrentPlace[]) => void;
+}) {
   const [requestNumber, setRequestNumber] = useState(0);
-  const [places, setPlaces] = useState<CurrentPlace[]>([]);
-  const [status, setStatus] = useState<"idle" | "requesting" | "active">("idle");
+  const [status, setStatus] = useState<"idle" | "requesting" | "active">(
+    "idle",
+  );
   const [error, setError] = useState("");
 
   useEffect(() => {
     apiRequest<PresenceResponse>("/api/presence/current", {}, token)
-      .then((response) => setPlaces(response.places))
+      .then((response) => {
+        onPlacesChange(response.places);
+        if (response.places.length) {
+          setStatus("active");
+        }
+      })
       .catch(() => undefined);
-  }, [token]);
+  }, [token, onPlacesChange]);
 
   useEffect(() => {
     if (requestNumber === 0) {
@@ -107,14 +152,16 @@ function PresencePanel({ token }: { token: string }) {
           token,
         );
         if (active) {
-          setPlaces(response.places);
+          onPlacesChange(response.places);
           setStatus("active");
           setError("");
         }
       } catch (caught) {
         if (active) {
           setError(
-            caught instanceof Error ? caught.message : "Could not detect your place",
+            caught instanceof Error
+              ? caught.message
+              : "Could not detect your place",
           );
           setStatus("idle");
         }
@@ -136,7 +183,9 @@ function PresencePanel({ token }: { token: string }) {
       },
       (locationError) => {
         if (active) {
-          setError(locationError.message || "Location permission was not granted.");
+          setError(
+            locationError.message || "Location permission was not granted.",
+          );
           setStatus("idle");
         }
       },
@@ -167,7 +216,7 @@ function PresencePanel({ token }: { token: string }) {
       window.clearInterval(intervalId);
       window.removeEventListener("pagehide", leaveOnPageExit);
     };
-  }, [requestNumber, token]);
+  }, [requestNumber, token, onPlacesChange]);
 
   return (
     <section className="presence-panel">
@@ -204,10 +253,266 @@ function PresencePanel({ token }: { token: string }) {
             : "Share my location"}
       </button>
       <p className="location-note">
-        Location is sent only while this page is open. Presence expires after 90
-        seconds without a heartbeat.
+        Presence expires after 90 seconds without a location heartbeat.
       </p>
     </section>
+  );
+}
+
+function KnockPanel({
+  token,
+  user,
+  places,
+}: {
+  token: string;
+  user: User;
+  places: CurrentPlace[];
+}) {
+  const socketRef = useRef<WebSocket | null>(null);
+  const [messages, setMessages] = useState<KnockMessage[]>([]);
+  const [connection, setConnection] = useState<
+    "waiting" | "connecting" | "connected" | "disconnected"
+  >("waiting");
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState("");
+  const placeKey = places.map((place) => place.id).join(",");
+
+  useEffect(() => {
+    if (!places.length) {
+      setMessages([]);
+      setConnection("waiting");
+      setError("");
+      return;
+    }
+
+    let active = true;
+    let reconnectTimer: number | undefined;
+
+    Promise.all(
+      places.map((place) =>
+        apiRequest<KnockHistoryResponse>(
+          `/api/knock/history?place_id=${place.id}`,
+          {},
+          token,
+        ),
+      ),
+    )
+      .then((histories) => {
+        if (active) {
+          const historyMessages = histories.flatMap(
+            (history) => history.messages,
+          );
+          setMessages((current) =>
+            mergeMessages([...historyMessages, ...current]),
+          );
+        }
+      })
+      .catch((caught) => {
+        if (active) {
+          setError(
+            caught instanceof Error ? caught.message : "Could not load history",
+          );
+        }
+      });
+
+    function connect() {
+      if (!active) {
+        return;
+      }
+      setConnection("connecting");
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const socket = new WebSocket(
+        `${protocol}//${window.location.host}/ws/knock?token=${encodeURIComponent(token)}`,
+      );
+      socketRef.current = socket;
+
+      socket.onmessage = (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "ready") {
+          setConnection("connected");
+          setError("");
+        } else if (payload.type === "message") {
+          setMessages((current) =>
+            mergeMessages([...current, payload.message as KnockMessage]),
+          );
+          setError("");
+        } else if (payload.type === "error") {
+          setError(payload.detail || "The KNOCK could not be sent.");
+        }
+      };
+
+      socket.onclose = (event) => {
+        if (!active) {
+          return;
+        }
+        setConnection("disconnected");
+        if (event.code === 4401) {
+          setError("Your session expired. Log in again.");
+          return;
+        }
+        if (event.code === 4403) {
+          setError("Share your location to join nearby KNOCKS.");
+          return;
+        }
+        reconnectTimer = window.setTimeout(connect, 2_000);
+      };
+    }
+
+    connect();
+    return () => {
+      active = false;
+      if (reconnectTimer !== undefined) {
+        window.clearTimeout(reconnectTimer);
+      }
+      socketRef.current?.close();
+      socketRef.current = null;
+    };
+  }, [token, placeKey]);
+
+  function sendKnock(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text) {
+      return;
+    }
+    if (socketRef.current?.readyState !== WebSocket.OPEN) {
+      setError("KNOCK is reconnecting. Try again in a moment.");
+      return;
+    }
+    socketRef.current.send(JSON.stringify({ type: "message", text }));
+    setDraft("");
+  }
+
+  if (!places.length) {
+    return (
+      <section className="knock-card knock-empty">
+        <span className="knock-icon" aria-hidden="true">◎</span>
+        <h2>Nearby KNOCKS appear here</h2>
+        <p>Share your location to join the live conversation at your place.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="knock-card">
+      <header className="knock-heading">
+        <div>
+          <p className="eyebrow">Live nearby</p>
+          <h2>KNOCK</h2>
+        </div>
+        <span className={`socket-status socket-status--${connection}`}>
+          {connection === "connected" ? "Connected" : connection}
+        </span>
+      </header>
+
+      <div className="place-chips" aria-label="Active place layers">
+        {places.map((place) => (
+          <span key={place.id}>{place.name}</span>
+        ))}
+      </div>
+
+      <div className="knock-feed" aria-live="polite">
+        {messages.length === 0 ? (
+          <div className="feed-empty">
+            <p>No KNOCKS yet.</p>
+            <span>Start the conversation at this place.</span>
+          </div>
+        ) : (
+          messages.map((message) => (
+            <article
+              className={`knock-message ${message.user_id === user.id ? "knock-message--own" : ""}`}
+              key={message.id}
+            >
+              <div className="message-meta">
+                <strong>{message.nickname}</strong>
+                <span>{message.place_name}</span>
+                <time dateTime={message.created_at}>
+                  {new Date(message.created_at).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </div>
+              <p>{message.text}</p>
+            </article>
+          ))
+        )}
+      </div>
+
+      {error && <p className="knock-error">{error}</p>}
+      <form className="knock-composer" onSubmit={sendKnock}>
+        <label htmlFor="knock-message">Send a KNOCK</label>
+        <textarea
+          id="knock-message"
+          maxLength={500}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="What is happening here?"
+          rows={3}
+          value={draft}
+        />
+        <div className="composer-footer">
+          <small>{draft.length}/500</small>
+          <button
+            className="button"
+            disabled={connection !== "connected" || !draft.trim()}
+            type="submit"
+          >
+            KNOCK
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function SignedInApp({
+  token,
+  user,
+  onLogout,
+}: {
+  token: string;
+  user: User;
+  onLogout: () => void;
+}) {
+  const [places, setPlaces] = useState<CurrentPlace[]>([]);
+
+  return (
+    <main className="app-shell">
+      <header className="app-header">
+        <div>
+          <p className="eyebrow">PlacePulse</p>
+          <h1>What is happening here?</h1>
+        </div>
+        <div className="user-chip">
+          <span>{user.nickname}</span>
+          <small>Signed in</small>
+        </div>
+      </header>
+
+      <div className="app-content">
+        <aside className="app-sidebar">
+          <PresencePanel
+            onPlacesChange={setPlaces}
+            places={places}
+            token={token}
+          />
+          <section className="account-summary">
+            <p className="eyebrow">Account</p>
+            <strong>{user.nickname}</strong>
+            <span>{user.phone}</span>
+            <button
+              className="button button--secondary"
+              onClick={onLogout}
+              type="button"
+            >
+              Log out
+            </button>
+          </section>
+        </aside>
+
+        <KnockPanel places={places} token={token} user={user} />
+      </div>
+    </main>
   );
 }
 
@@ -346,6 +651,18 @@ function App() {
     setView("login");
   }
 
+  if (checkingSession) {
+    return (
+      <main className="page-shell">
+        <p className="session-check">Checking your session...</p>
+      </main>
+    );
+  }
+
+  if (user && token) {
+    return <SignedInApp onLogout={handleLogout} token={token} user={user} />;
+  }
+
   return (
     <main className="page-shell">
       <section className="auth-card">
@@ -353,162 +670,137 @@ function App() {
           <p className="eyebrow">PlacePulse</p>
           <h1>Know what is happening here.</h1>
           <p>
-            Sign in and share your location to discover the OpenStreetMap places
-            around you.
+            Sign in and share your location to join live conversations around
+            you.
           </p>
         </header>
 
         <div className="form-block" aria-live="polite">
-          {checkingSession ? (
-            <p className="session-check">Checking your session...</p>
-          ) : user ? (
-            <div className="account-panel">
-              <p className="eyebrow">Signed in</p>
-              <h2>Welcome, {user.nickname}</h2>
-              <dl>
-                <div>
-                  <dt>Phone</dt>
-                  <dd>{user.phone}</dd>
-                </div>
-                <div>
-                  <dt>Access</dt>
-                  <dd>Authenticated</dd>
-                </div>
-              </dl>
-              {token && <PresencePanel token={token} />}
-              <button className="button button--secondary" onClick={handleLogout}>
-                Log out
+          {view !== "verify" && (
+            <nav className="auth-tabs" aria-label="Authentication options">
+              <button
+                className={view === "login" ? "active" : ""}
+                onClick={() => selectView("login")}
+                type="button"
+              >
+                Log in
               </button>
-            </div>
-          ) : (
-            <>
-              {view !== "verify" && (
-                <nav className="auth-tabs" aria-label="Authentication options">
-                  <button
-                    className={view === "login" ? "active" : ""}
-                    onClick={() => selectView("login")}
-                    type="button"
-                  >
-                    Log in
-                  </button>
-                  <button
-                    className={view === "register" ? "active" : ""}
-                    onClick={() => selectView("register")}
-                    type="button"
-                  >
-                    Register
-                  </button>
-                </nav>
-              )}
+              <button
+                className={view === "register" ? "active" : ""}
+                onClick={() => selectView("register")}
+                type="button"
+              >
+                Register
+              </button>
+            </nav>
+          )}
 
-              {notice && <p className="message message--success">{notice}</p>}
-              {error && <p className="message message--error">{error}</p>}
+          {notice && <p className="message message--success">{notice}</p>}
+          {error && <p className="message message--error">{error}</p>}
 
-              {view === "login" && (
-                <form onSubmit={handleLogin}>
-                  <h2>Log in</h2>
-                  <label>
-                    Phone number
-                    <input
-                      name="phone"
-                      type="tel"
-                      inputMode="tel"
-                      autoComplete="tel"
-                      required
-                    />
-                  </label>
-                  <label>
-                    Password
-                    <input
-                      name="password"
-                      type="password"
-                      autoComplete="current-password"
-                      required
-                    />
-                  </label>
-                  <button className="button" disabled={loading} type="submit">
-                    {loading ? "Logging in..." : "Log in"}
-                  </button>
-                </form>
-              )}
+          {view === "login" && (
+            <form onSubmit={handleLogin}>
+              <h2>Log in</h2>
+              <label>
+                Phone number
+                <input
+                  name="phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  required
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
+              <button className="button" disabled={loading} type="submit">
+                {loading ? "Logging in..." : "Log in"}
+              </button>
+            </form>
+          )}
 
-              {view === "register" && (
-                <form onSubmit={handleRegister}>
-                  <h2>Create an account</h2>
-                  <label>
-                    Nickname
-                    <input
-                      name="nickname"
-                      type="text"
-                      minLength={2}
-                      maxLength={30}
-                      autoComplete="nickname"
-                      required
-                    />
-                  </label>
-                  <label>
-                    Phone number
-                    <input
-                      name="phone"
-                      type="tel"
-                      inputMode="tel"
-                      autoComplete="tel"
-                      required
-                    />
-                  </label>
-                  <label>
-                    Password
-                    <input
-                      name="password"
-                      type="password"
-                      minLength={8}
-                      maxLength={128}
-                      autoComplete="new-password"
-                      required
-                    />
-                  </label>
-                  <p className="hint">Use at least 8 characters.</p>
-                  <button className="button" disabled={loading} type="submit">
-                    {loading ? "Creating account..." : "Register"}
-                  </button>
-                </form>
-              )}
+          {view === "register" && (
+            <form onSubmit={handleRegister}>
+              <h2>Create an account</h2>
+              <label>
+                Nickname
+                <input
+                  name="nickname"
+                  type="text"
+                  minLength={2}
+                  maxLength={30}
+                  autoComplete="nickname"
+                  required
+                />
+              </label>
+              <label>
+                Phone number
+                <input
+                  name="phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  required
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  name="password"
+                  type="password"
+                  minLength={8}
+                  maxLength={128}
+                  autoComplete="new-password"
+                  required
+                />
+              </label>
+              <p className="hint">Use at least 8 characters.</p>
+              <button className="button" disabled={loading} type="submit">
+                {loading ? "Creating account..." : "Register"}
+              </button>
+            </form>
+          )}
 
-              {view === "verify" && (
-                <form onSubmit={handleVerify}>
-                  <p className="eyebrow">One more step</p>
-                  <h2>Verify your phone</h2>
-                  <p className="form-copy">Code sent for {pendingPhone}.</p>
-                  {developmentCode && (
-                    <p className="development-code">
-                      Local verification code: <strong>{developmentCode}</strong>
-                    </p>
-                  )}
-                  <label>
-                    Six-digit code
-                    <input
-                      name="code"
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]{6}"
-                      maxLength={6}
-                      autoComplete="one-time-code"
-                      required
-                    />
-                  </label>
-                  <button className="button" disabled={loading} type="submit">
-                    {loading ? "Verifying..." : "Verify phone"}
-                  </button>
-                  <button
-                    className="text-button"
-                    onClick={() => selectView("register")}
-                    type="button"
-                  >
-                    Start registration again
-                  </button>
-                </form>
+          {view === "verify" && (
+            <form onSubmit={handleVerify}>
+              <p className="eyebrow">One more step</p>
+              <h2>Verify your phone</h2>
+              <p className="form-copy">Code sent for {pendingPhone}.</p>
+              {developmentCode && (
+                <p className="development-code">
+                  Local verification code: <strong>{developmentCode}</strong>
+                </p>
               )}
-            </>
+              <label>
+                Six-digit code
+                <input
+                  name="code"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  autoComplete="one-time-code"
+                  required
+                />
+              </label>
+              <button className="button" disabled={loading} type="submit">
+                {loading ? "Verifying..." : "Verify phone"}
+              </button>
+              <button
+                className="text-button"
+                onClick={() => selectView("register")}
+                type="button"
+              >
+                Start registration again
+              </button>
+            </form>
           )}
         </div>
       </section>
