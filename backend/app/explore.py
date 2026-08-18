@@ -139,6 +139,21 @@ def comment_response(comment: ExploreComment, nickname: str) -> ExploreCommentRe
     )
 
 
+def place_hierarchy_names(db: Session, place: Place | None) -> list[str]:
+    names: list[str] = []
+    visited: set[int] = set()
+    current = place
+    while current is not None and current.id not in visited:
+        visited.add(current.id)
+        names.append(current.name)
+        current = (
+            db.get(Place, current.parent_place_id)
+            if current.parent_place_id is not None
+            else None
+        )
+    return list(reversed(names))
+
+
 def memory_response(
     db: Session,
     memory: ExploreMemory,
@@ -163,11 +178,18 @@ def memory_response(
         .select_from(ExploreLike)
         .where(ExploreLike.memory_id == memory.id)
     )
+    participant_count = db.scalar(
+        select(func.count())
+        .select_from(ExploreParticipant)
+        .where(ExploreParticipant.memory_id == memory.id)
+    )
 
     return ExploreMemoryResponse(
         id=memory.id,
         place_id=memory.place_id,
         place_name=place.name if place is not None else "Unknown place",
+        place_names=place_hierarchy_names(db, place) or ["Unknown place"],
+        participant_count=int(participant_count or 0),
         created_at=memory.created_at,
         participant=db.get(ExploreParticipant, (memory.id, user_id)) is not None,
         liked_by_me=db.get(ExploreLike, (memory.id, user_id)) is not None,

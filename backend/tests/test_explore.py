@@ -57,7 +57,11 @@ def fake_media_ai():
     app.dependency_overrides.pop(get_ai_adapter, None)
 
 
-def create_place(name: str, osm_id: int) -> int:
+def create_place(
+    name: str,
+    osm_id: int,
+    parent_place_id: int | None = None,
+) -> int:
     with SessionLocal() as db:
         place = Place(
             osm_type="way",
@@ -66,6 +70,7 @@ def create_place(name: str, osm_id: int) -> int:
             center_lat=32.0,
             center_lon=35.0,
             radius_m=75,
+            parent_place_id=parent_place_id,
         )
         db.add(place)
         db.commit()
@@ -280,6 +285,30 @@ def test_nonparticipant_needs_current_presence_to_access_memory(
         client.get(actual_media_url, headers=auth_headers(outsider)).status_code
         == 403
     )
+
+
+def test_feed_describes_nested_places_and_distinct_participants(
+    client: TestClient,
+    fake_media_ai,
+) -> None:
+    campus_id = create_place("Example Campus", 4010)
+    building_id = create_place("Library Building", 4011, campus_id)
+    first = create_user("0500004010", "First Witness", building_id)
+    second = create_user("0500004011", "Second Witness", building_id)
+
+    uploads = [
+        upload_image(client, first, building_id, 1),
+        upload_image(client, first, building_id, 2),
+        upload_image(client, second, building_id, 3),
+    ]
+    assert [response.status_code for response in uploads] == [201, 201, 201]
+    assert asyncio.run(process_next_job()) is True
+
+    feed = client.get("/api/explore", headers=auth_headers(first))
+    assert feed.status_code == 200
+    memory = feed.json()["memories"][0]
+    assert memory["place_names"] == ["Example Campus", "Library Building"]
+    assert memory["participant_count"] == 2
 
 
 def test_participant_can_comment_like_and_unlike_after_leaving(

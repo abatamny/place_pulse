@@ -167,6 +167,8 @@ class ExploreMemoryResponse(BaseModel):
     id: int
     place_id: int
     place_name: str
+    place_names: list[str]
+    participant_count: int
     created_at: datetime
     participant: bool
     liked_by_me: bool
