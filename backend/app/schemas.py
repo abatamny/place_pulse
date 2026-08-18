@@ -182,3 +182,132 @@ class ExploreFeedResponse(BaseModel):
 class ExploreLikeResponse(BaseModel):
     liked_by_me: bool
     like_count: int
+
+
+class ForumPostCreate(BaseModel):
+    place_id: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=120)
+    body: str = Field(min_length=1, max_length=1800)
+    is_anonymous: bool = False
+
+    @field_validator("title", "body")
+    @classmethod
+    def clean_post_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Post text cannot be empty")
+        return value
+
+
+class ForumCommentCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("text")
+    @classmethod
+    def clean_comment_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Comment cannot be empty")
+        return value
+
+
+class ForumVoteRequest(BaseModel):
+    value: Literal[-1, 1]
+
+
+class ForumCommentResponse(BaseModel):
+    id: int
+    user_id: int
+    nickname: str
+    text: str
+    created_at: datetime
+
+
+class ForumPostResponse(BaseModel):
+    id: int
+    place_id: int
+    place_name: str
+    user_id: int | None
+    nickname: str
+    is_anonymous: bool
+    is_mine: bool
+    title: str
+    body: str
+    upvotes: int
+    downvotes: int
+    score: int
+    my_vote: int
+    created_at: datetime
+    comments: list[ForumCommentResponse]
+
+
+class ForumFeedResponse(BaseModel):
+    posts: list[ForumPostResponse]
+
+
+class ForumVoteResponse(BaseModel):
+    upvotes: int
+    downvotes: int
+    score: int
+    my_vote: int
+
+
+class PersonalForumResponse(BaseModel):
+    posts: list[ForumPostResponse]
+    total_upvotes: int
+    total_downvotes: int
+    total_score: int
+
+
+class DMUserResponse(BaseModel):
+    id: int
+    nickname: str
+    phone: str
+
+
+class DMUserSearchResponse(BaseModel):
+    users: list[DMUserResponse]
+
+
+class DMMessageCreate(BaseModel):
+    recipient_id: int = Field(gt=0)
+    text: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("text")
+    @classmethod
+    def clean_message_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Message cannot be empty")
+        if any(
+            ord(character) < 32 and character not in {"\n", "\r", "\t"}
+            for character in value
+        ):
+            raise ValueError("Message contains invalid control characters")
+        return value
+
+
+class DMMessageResponse(BaseModel):
+    id: int
+    sender_id: int
+    sender_nickname: str
+    recipient_id: int
+    recipient_nickname: str
+    text: str
+    created_at: datetime
+    read_at: datetime | None
+
+
+class DMConversationResponse(BaseModel):
+    user: DMUserResponse
+    last_message: DMMessageResponse
+    unread_count: int
+
+
+class DMConversationListResponse(BaseModel):
+    conversations: list[DMConversationResponse]
+
+
+class DMHistoryResponse(BaseModel):
+    user: DMUserResponse
+    messages: list[DMMessageResponse]

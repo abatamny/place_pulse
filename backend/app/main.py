@@ -8,7 +8,9 @@ from app.auth import auth_router, websocket_router
 from app.config import settings
 from app.database import SessionLocal, create_schema
 from app.digs import digs_router
+from app.dms import dm_router, dm_websocket_router
 from app.explore import explore_router
+from app.forum import forum_router
 from app.knock import knock_router, knock_websocket_router
 from app.places import places_router
 
@@ -27,7 +29,10 @@ app.include_router(places_router)
 app.include_router(knock_router)
 app.include_router(knock_websocket_router)
 app.include_router(digs_router)
+app.include_router(dm_router)
+app.include_router(dm_websocket_router)
 app.include_router(explore_router)
+app.include_router(forum_router)
 
 
 @app.get("/api/health")

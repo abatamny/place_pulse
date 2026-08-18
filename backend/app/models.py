@@ -5,6 +5,7 @@ from geoalchemy2.elements import WKBElement
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -237,6 +238,80 @@ class ExploreLike(Base):
     )
 
 
+class ForumPost(Base):
+    __tablename__ = "forum_posts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    place_id: Mapped[int] = mapped_column(
+        ForeignKey("places.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(Text)
+    is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
+    moderation_status: Mapped[str] = mapped_column(String(20), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ForumComment(Base):
+    __tablename__ = "forum_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    post_id: Mapped[int] = mapped_column(
+        ForeignKey("forum_posts.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    text: Mapped[str] = mapped_column(String(1000))
+    moderation_status: Mapped[str] = mapped_column(String(20), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ForumVote(Base):
+    __tablename__ = "forum_votes"
+    __table_args__ = (
+        CheckConstraint("value IN (-1, 1)", name="ck_forum_vote_value"),
+    )
+
+    post_id: Mapped[int] = mapped_column(
+        ForeignKey("forum_posts.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    value: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class DirectMessage(Base):
+    __tablename__ = "direct_messages"
+    __table_args__ = (
+        CheckConstraint("sender_id <> recipient_id", name="ck_dm_distinct_users"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sender_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    recipient_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    text: Mapped[str] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True, nullable=False
+    )
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class AIJob(Base):
     __tablename__ = "ai_jobs"
 
@@ -252,3 +327,11 @@ class AIJob(Base):
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class JobQueueState(Base):
+    __tablename__ = "job_queue_state"
+
+    queue_name: Mapped[str] = mapped_column(String(40), primary_key=True)
+    last_user_id: Mapped[int | None] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
