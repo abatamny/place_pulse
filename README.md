@@ -156,7 +156,7 @@ The following PowerShell command creates an isolated Compose project on port `18
 powershell -ExecutionPolicy Bypass -File scripts/fresh-start-test.ps1
 ```
 
-It does not reset the normal `place_pulse` Compose project or its saved data. GitHub Actions repeats the backend tests, frontend production build, and fresh four-service startup on every push and pull request.
+It does not reset the normal `place_pulse` Compose project or its saved data. GitHub Actions repeats the backend tests, frontend production build, and fresh four-service startup on every push and pull request. An enabled Azure deployment runs afterward only for `main`.
 
 ## Startup smoke test
 
@@ -170,7 +170,7 @@ The smoke test builds and starts the stack, waits for the public health endpoint
 
 ## Optional Azure VM deployment
 
-The course-sized Azure path runs the same Docker Compose stack on one Ubuntu VM, so PostgreSQL/PostGIS, media, the backend, worker, and Nginx keep the same architecture. Only SSH and Nginx on port 80 are opened publicly. This creates billable Azure resources and is not run automatically.
+The course-sized Azure path runs the same Docker Compose stack on one Ubuntu VM, so PostgreSQL/PostGIS, media, the backend, worker, and Nginx keep the same architecture. Only SSH and Nginx on port 80 are opened publicly. Initial provisioning creates billable Azure resources and must be run manually.
 
 Prerequisites:
 
@@ -192,6 +192,8 @@ powershell -ExecutionPolicy Bypass -File scripts/deploy-azure.ps1 `
 
 The environment file is base64-encoded into VM custom data during provisioning and installed as `/opt/placepulse/.env` with root-only permissions. For a course demo, use a dedicated low-value AI key rather than reusing an important production credential. The helper validates repository/branch inputs, starts Compose through cloud-init, prints the public IP, and deletes its temporary rendered cloud-init file.
 
+After the VM is provisioned, GitHub Actions can automatically deploy the exact tested `main` commit through Azure VM Run Command. The job uses short-lived OIDC authentication and stays disabled until its GitHub variables and environment secrets are configured. Follow [the automatic Azure deployment setup](docs/azure-auto-deploy.md).
+
 When the demo is finished, remove the Azure resource group from the portal or with `az group delete --name placepulse-course-rg`. This permanently deletes the VM and its stored database/media volumes.
 
 ## Final project documents
@@ -200,6 +202,7 @@ When the demo is finished, remove the Azure resource group from the portal or wi
 - [Feature-to-test matrix](docs/feature-test-matrix.md)
 - [Risk assessment](docs/risk-assessment.md)
 - [Demonstration video script](docs/demo-script.md)
+- [Automatic Azure deployment setup](docs/azure-auto-deploy.md)
 
 ## Useful commands
 
