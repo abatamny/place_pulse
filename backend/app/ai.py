@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Protocol, Sequence, TypeVar
 
@@ -18,11 +19,43 @@ from pydantic import (
 from app.config import settings
 
 MAX_AI_TEXT_LENGTH = 2_000
+ALLOWED_MODERATION_CATEGORIES = {
+    "ai_failure",
+    "harassment",
+    "harassment_threatening",
+    "hate",
+    "hate_threatening",
+    "illicit",
+    "illicit_violent",
+    "illegal_activity",
+    "other",
+    "prompt_injection",
+    "self_harm",
+    "self_harm_instructions",
+    "self_harm_intent",
+    "sexual",
+    "sexual_minors",
+    "spam",
+    "threat",
+    "violence",
+    "violence_graphic",
+}
+INVISIBLE_CHARACTERS = re.compile(r"[\u200b-\u200f\u2060\ufeff]")
 PROMPT_INJECTION_PATTERNS = (
-    re.compile(r"ignore\s+(all\s+|any\s+|the\s+)?(previous|system|developer)\s+instructions", re.I),
-    re.compile(r"reveal\s+(the\s+)?(system|developer)\s+prompt", re.I),
-    re.compile(r"act\s+as\s+(the\s+)?(system|developer)", re.I),
-    re.compile(r"<\/?(system|developer|assistant)>", re.I),
+    re.compile(
+        r"(?:ignore|disregard|forget|override|bypass)\b.{0,80}"
+        r"(?:instruction|prompt|policy|rule|safety)",
+        re.I | re.S,
+    ),
+    re.compile(
+        r"(?:reveal|show|print|repeat|leak)\b.{0,60}"
+        r"(?:system|developer)?\s*(?:prompt|instruction|policy)",
+        re.I | re.S,
+    ),
+    re.compile(r"act\s+as\s+(?:the\s+)?(?:system|developer)", re.I),
+    re.compile(r"(?:jailbreak|developer\s+mode|\bdan\s+mode\b)", re.I),
+    re.compile(r"<\/?(?:system|developer|assistant)>", re.I),
+    re.compile(r"(?:\[/?inst\]|###\s*(?:system|developer)|begin\s+system)", re.I),
 )
 
 
@@ -66,6 +99,8 @@ class ModerationDecision(BaseModel):
             normalized = value.strip().lower()
             if not re.fullmatch(r"[a-z0-9_-]{1,40}", normalized):
                 raise ValueError("Invalid moderation category")
+            if normalized not in ALLOWED_MODERATION_CATEGORIES:
+                raise ValueError("Unknown moderation category")
             if normalized not in cleaned:
                 cleaned.append(normalized)
         return cleaned
@@ -121,19 +156,25 @@ DecisionModel = TypeVar("DecisionModel", bound=BaseModel)
 
 
 def contains_prompt_injection(text: str) -> bool:
-    return any(pattern.search(text) for pattern in PROMPT_INJECTION_PATTERNS)
+    normalized = unicodedata.normalize("NFKC", text)
+    normalized = INVISIBLE_CHARACTERS.sub("", normalized)
+    return any(pattern.search(normalized) for pattern in PROMPT_INJECTION_PATTERNS)
 
 
 def validate_model_input(text: str, *, check_prompt_injection: bool = True) -> str:
     if not isinstance(text, str):
         raise AIInputError("AI input must be text")
 
-    cleaned = text.strip()
+    cleaned = unicodedata.normalize("NFKC", text).strip()
+    cleaned = INVISIBLE_CHARACTERS.sub("", cleaned)
     if not cleaned:
         raise AIInputError("AI input cannot be empty")
     if len(cleaned) > MAX_AI_TEXT_LENGTH:
         raise AIInputError(f"AI input cannot exceed {MAX_AI_TEXT_LENGTH} characters")
-    if "\x00" in cleaned:
+    if any(
+        ord(character) < 32 and character not in {"\n", "\r", "\t"}
+        for character in cleaned
+    ):
         raise AIInputError("AI input contains invalid control characters")
     if check_prompt_injection and contains_prompt_injection(cleaned):
         raise PromptInjectionError("Possible prompt injection detected")
@@ -141,6 +182,8 @@ def validate_model_input(text: str, *, check_prompt_injection: bool = True) -> s
 
 
 def validate_model_output_text(text: str) -> None:
+    if any(ord(character) < 32 for character in text):
+        raise AIOutputError("AI output contained invalid control characters")
     if contains_prompt_injection(text):
         raise AIOutputError("AI output contained unexpected instructions")
 
@@ -578,6 +621,24 @@ async def request_routing(
     allowed_ids = {place.place_id for place in places}
     if len(allowed_ids) != len(places):
         raise AIInputError("Routing place IDs must be unique")
+    for place in places:
+        validate_model_input(place.name)
+        if place.parent_place_id == place.place_id:
+            raise AIInputError("A routing place cannot contain itself")
+        if (
+            place.parent_place_id is not None
+            and place.parent_place_id not in allowed_ids
+        ):
+            raise AIInputError("Routing parents must be allowed place IDs")
+
+    normalized_message = unicodedata.normalize("NFKC", cleaned).casefold()
+    explicitly_named_ids = {
+        place.place_id
+        for place in places
+        if len(place.name.strip()) >= 3
+        and unicodedata.normalize("NFKC", place.name).casefold()
+        in normalized_message
+    }
 
     timeout = timeout_seconds or settings.ai_timeout_seconds
     try:
@@ -597,6 +658,11 @@ async def request_routing(
         raise AIOutputError("AI routing returned invalid output") from exc
     if decision.place_id not in allowed_ids:
         raise AIOutputError("AI routing returned an unknown place")
+    if (
+        len(explicitly_named_ids) == 1
+        and decision.place_id not in explicitly_named_ids
+    ):
+        raise AIOutputError("AI routing contradicted an explicitly named place")
     validate_model_output_text(decision.reason)
     return decision
 

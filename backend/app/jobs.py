@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.ai import validate_model_input
 from app.database import SessionLocal
-from app.models import AIJob, KnockMessage
+from app.models import AIJob, JobQueueState, KnockMessage
 
 TEXT_MODERATION_JOB = "text_moderation"
 EXPLORE_CLUSTER_JOB = "explore_cluster"
@@ -14,6 +14,7 @@ PENDING = "pending"
 RUNNING = "running"
 COMPLETED = "completed"
 FAILED = "failed"
+QUEUE_STATE_NAME = "background"
 
 
 @dataclass(frozen=True)
@@ -27,13 +28,16 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def enqueue_text_moderation(text: str) -> int:
+def enqueue_text_moderation(text: str, user_id: int | None = None) -> int:
     cleaned = validate_model_input(text, check_prompt_injection=False)
+    payload: dict[str, object] = {"text": cleaned}
+    if user_id is not None:
+        payload["user_id"] = user_id
     with SessionLocal() as db:
         job = AIJob(
             job_type=TEXT_MODERATION_JOB,
             status=PENDING,
-            payload={"text": cleaned},
+            payload=payload,
             attempts=0,
         )
         db.add(job)
@@ -42,12 +46,16 @@ def enqueue_text_moderation(text: str) -> int:
         return job.id
 
 
-def queue_explore_cluster_check(db: Session, place_id: int) -> None:
+def queue_explore_cluster_check(
+    db: Session,
+    place_id: int,
+    user_id: int,
+) -> None:
     db.add(
         AIJob(
             job_type=EXPLORE_CLUSTER_JOB,
             status=PENDING,
-            payload={"place_id": place_id},
+            payload={"place_id": place_id, "user_id": user_id},
             attempts=0,
         )
     )
@@ -55,14 +63,49 @@ def queue_explore_cluster_check(db: Session, place_id: int) -> None:
 
 def claim_next_job() -> ClaimedAIJob | None:
     with SessionLocal.begin() as db:
-        job = db.scalar(
-            select(AIJob)
-            .where(AIJob.status == PENDING)
-            .order_by(AIJob.id)
-            .with_for_update(skip_locked=True)
+        pending_jobs = list(
+            db.scalars(
+                select(AIJob)
+                .where(AIJob.status == PENDING)
+                .order_by(AIJob.id)
+                .with_for_update(skip_locked=True)
+            )
         )
-        if job is None:
+        if not pending_jobs:
             return None
+
+        first_job_by_user: dict[int, AIJob] = {}
+        for pending_job in pending_jobs:
+            raw_user_id = pending_job.payload.get("user_id")
+            user_id = (
+                raw_user_id
+                if isinstance(raw_user_id, int)
+                and not isinstance(raw_user_id, bool)
+                and raw_user_id > 0
+                else 0
+            )
+            first_job_by_user.setdefault(user_id, pending_job)
+
+        state = db.get(JobQueueState, QUEUE_STATE_NAME)
+        if state is None:
+            state = JobQueueState(
+                queue_name=QUEUE_STATE_NAME,
+                last_user_id=None,
+                updated_at=utc_now(),
+            )
+            db.add(state)
+
+        user_ids = sorted(first_job_by_user)
+        last_user_id = state.last_user_id
+        next_user_id = user_ids[0]
+        if last_user_id is not None:
+            next_user_id = next(
+                (user_id for user_id in user_ids if user_id > last_user_id),
+                user_ids[0],
+            )
+        job = first_job_by_user[next_user_id]
+        state.last_user_id = next_user_id
+        state.updated_at = utc_now()
 
         job.status = RUNNING
         job.attempts += 1

@@ -313,7 +313,7 @@ async def upload_dig(
                 expires_at=now + DIG_LIFETIME,
             )
             db.add(dig)
-            queue_explore_cluster_check(db, place_id)
+            queue_explore_cluster_check(db, place_id, auth.user.id)
             db.commit()
             db.refresh(dig)
             return dig_response(dig, place.name, auth.user.nickname)

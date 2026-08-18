@@ -255,6 +255,7 @@ def save_message(
                     payload={
                         "text": text,
                         "knock_message_id": message.id,
+                        "user_id": user_id,
                     },
                     attempts=0,
                 )
