@@ -34,16 +34,39 @@ The defaults work without creating an `.env` file. To change them, copy `.env.ex
 | `OVERPASS_URL` | public Overpass URL | Containing-place and boundary endpoint |
 | `AI_PROVIDER` | `openai` | AI adapter provider |
 | `AI_API_URL` | OpenAI Responses API | Structured-output endpoint |
+| `AI_API_FORMAT` | `responses` | `responses` for native OpenAI or `chat_completions` for compatible JSON-mode providers |
 | `AI_API_KEY` | empty | Provider API key; required only when an AI operation is used |
 | `AI_MODEL` | `gpt-4.1-mini` | Model used for moderation and place routing |
 | `AI_MODERATION_URL` | OpenAI Moderations API | Image-moderation endpoint |
 | `AI_MODERATION_MODEL` | `omni-moderation-latest` | Model used for DIG image and video-frame moderation |
+| `AI_MEDIA_MODERATION_MODE` | `moderations` | Use the moderation endpoint, or `model` to moderate media with a multimodal chat model |
 | `AI_TIMEOUT_SECONDS` | `8` | Maximum wait for a model decision |
 | `POSTGRES_DB` | `placepulse` | PostgreSQL database name |
 | `POSTGRES_USER` | `placepulse` | PostgreSQL user |
 | `POSTGRES_PASSWORD` | `placepulse` | Local PostgreSQL password |
 
 Do not commit `.env`; it is ignored by Git.
+
+For an OpenAI-compatible Alibaba Model Studio workspace using `qwen3.7-plus`, use the workspace URL from its credential export and this shape in your private `.env`:
+
+```dotenv
+AI_PROVIDER=openai-compatible
+AI_API_URL=https://YOUR_WORKSPACE.REGION.maas.aliyuncs.com/compatible-mode/v1/chat/completions
+AI_API_FORMAT=chat_completions
+AI_API_KEY=your-private-key
+AI_MODEL=qwen3.7-plus
+AI_MODERATION_MODEL=qwen3.7-plus
+AI_MEDIA_MODERATION_MODE=model
+AI_TIMEOUT_SECONDS=20
+```
+
+In compatible mode, text decisions and DIG image/video-frame checks use validated JSON returned by the configured model. Native OpenAI remains the default and continues to use strict Responses schemas plus the Moderations API.
+
+On PowerShell, a two-column Alibaba credential export can be imported without printing the key:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/configure-ai-provider.ps1 -CredentialFile "C:\path\to\api-key.csv" -Model "qwen3.7-plus"
+```
 
 ## Local authentication flow
 
