@@ -1,4 +1,6 @@
 import re
+from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -81,3 +83,31 @@ class CurrentPlaceResponse(BaseModel):
 class PresenceResponse(BaseModel):
     places: list[CurrentPlaceResponse]
     expires_in_seconds: int
+
+
+class KnockSendPayload(BaseModel):
+    type: Literal["message"]
+    text: str = Field(min_length=1, max_length=500)
+
+    @field_validator("text")
+    @classmethod
+    def clean_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Message cannot be empty")
+        return value
+
+
+class KnockMessageResponse(BaseModel):
+    id: int
+    place_id: int
+    place_name: str
+    user_id: int
+    nickname: str
+    author_rank: str
+    text: str
+    created_at: datetime
+
+
+class KnockHistoryResponse(BaseModel):
+    messages: list[KnockMessageResponse]

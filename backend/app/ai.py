@@ -178,6 +178,9 @@ class OpenAIAdapter:
         schema_name: str,
         response_model: type[DecisionModel],
     ) -> DecisionModel:
+        if not self.api_key:
+            raise AIProviderError("AI_API_KEY is not configured")
+
         request_body = {
             "model": self.model,
             "input": [
@@ -250,14 +253,16 @@ class OpenAIAdapter:
 def create_ai_adapter() -> AIAdapter:
     if settings.ai_provider.lower() != "openai":
         raise AIProviderError(f"Unsupported AI provider: {settings.ai_provider}")
-    if not settings.ai_api_key:
-        raise AIProviderError("AI_API_KEY is not configured")
     return OpenAIAdapter(
         api_url=settings.ai_api_url,
         api_key=settings.ai_api_key,
         model=settings.ai_model,
         request_timeout=settings.ai_timeout_seconds,
     )
+
+
+def get_ai_adapter() -> AIAdapter:
+    return create_ai_adapter()
 
 
 async def request_moderation(

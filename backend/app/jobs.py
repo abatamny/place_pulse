@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.ai import validate_model_input
 from app.database import SessionLocal
-from app.models import AIJob
+from app.models import AIJob, KnockMessage
 
 TEXT_MODERATION_JOB = "text_moderation"
 PENDING = "pending"
@@ -70,6 +70,13 @@ def complete_job(job_id: int, result: dict) -> None:
         job.result = result
         job.error = None
         job.completed_at = utc_now()
+        knock_message_id = job.payload.get("knock_message_id")
+        if isinstance(knock_message_id, int):
+            message = db.get(KnockMessage, knock_message_id)
+            if message is not None:
+                message.moderation_status = (
+                    "approved" if result.get("approved") is True else "flagged"
+                )
 
 
 def fail_job(job_id: int, error: str) -> None:
