@@ -30,12 +30,29 @@ def ensure_test_database() -> None:
                 )
             )
 
+    with psycopg.connect(
+        host=os.getenv("DB_HOST", "db"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        dbname=TEST_DATABASE_NAME,
+        user=os.getenv("POSTGRES_USER", "placepulse"),
+        password=os.getenv("POSTGRES_PASSWORD", "placepulse"),
+        autocommit=True,
+    ) as connection:
+        connection.execute("CREATE EXTENSION IF NOT EXISTS postgis")
+
 
 ensure_test_database()
 
 from app.database import SessionLocal, create_schema  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import AuthSession, User  # noqa: E402
+from app.models import (  # noqa: E402
+    AuthSession,
+    Place,
+    PlaceMembership,
+    Presence,
+    User,
+    Visit,
+)
 
 create_schema()
 
@@ -50,6 +67,10 @@ def client() -> TestClient:
 def clean_auth_tables():
     def clean() -> None:
         with SessionLocal() as db:
+            db.execute(delete(Visit))
+            db.execute(delete(Presence))
+            db.execute(delete(PlaceMembership))
+            db.execute(delete(Place))
             db.execute(delete(AuthSession))
             db.execute(delete(User))
             db.commit()
@@ -57,4 +78,3 @@ def clean_auth_tables():
     clean()
     yield
     clean()
-
