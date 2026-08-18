@@ -53,6 +53,11 @@ from app.models import (  # noqa: E402
     AIJob,
     AuthSession,
     Dig,
+    ExploreComment,
+    ExploreLike,
+    ExploreMemory,
+    ExploreMemoryDig,
+    ExploreParticipant,
     KnockMessage,
     Place,
     PlaceMembership,
@@ -75,6 +80,11 @@ def clean_auth_tables():
     def clean() -> None:
         with SessionLocal() as db:
             db.execute(delete(AIJob))
+            db.execute(delete(ExploreComment))
+            db.execute(delete(ExploreLike))
+            db.execute(delete(ExploreParticipant))
+            db.execute(delete(ExploreMemoryDig))
+            db.execute(delete(ExploreMemory))
             db.execute(delete(Dig))
             db.execute(delete(KnockMessage))
             db.execute(delete(Visit))
