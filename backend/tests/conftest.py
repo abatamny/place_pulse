@@ -1,4 +1,6 @@
 import os
+import shutil
+from pathlib import Path
 
 import psycopg
 import pytest
@@ -8,7 +10,9 @@ from sqlalchemy import delete
 
 
 TEST_DATABASE_NAME = os.getenv("TEST_POSTGRES_DB", "placepulse_test")
+TEST_MEDIA_ROOT = Path(os.getenv("TEST_MEDIA_ROOT", "/tmp/placepulse-test-media"))
 os.environ["POSTGRES_DB"] = TEST_DATABASE_NAME
+os.environ["MEDIA_ROOT"] = str(TEST_MEDIA_ROOT)
 
 
 def ensure_test_database() -> None:
@@ -48,6 +52,7 @@ from app.main import app  # noqa: E402
 from app.models import (  # noqa: E402
     AIJob,
     AuthSession,
+    Dig,
     KnockMessage,
     Place,
     PlaceMembership,
@@ -70,6 +75,7 @@ def clean_auth_tables():
     def clean() -> None:
         with SessionLocal() as db:
             db.execute(delete(AIJob))
+            db.execute(delete(Dig))
             db.execute(delete(KnockMessage))
             db.execute(delete(Visit))
             db.execute(delete(Presence))
@@ -78,6 +84,7 @@ def clean_auth_tables():
             db.execute(delete(AuthSession))
             db.execute(delete(User))
             db.commit()
+        shutil.rmtree(TEST_MEDIA_ROOT / "digs", ignore_errors=True)
 
     clean()
     yield
