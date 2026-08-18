@@ -1,6 +1,6 @@
 # PlacePulse
 
-PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. The project currently includes authentication, place/presence tracking, AI-backed moderation, and live place-scoped KNOCK messages.
+PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. The project currently includes authentication, place/presence tracking, AI-backed moderation, live place-scoped KNOCK messages, and temporary DIG media.
 
 ## Requirements
 
@@ -36,6 +36,8 @@ The defaults work without creating an `.env` file. To change them, copy `.env.ex
 | `AI_API_URL` | OpenAI Responses API | Structured-output endpoint |
 | `AI_API_KEY` | empty | Provider API key; required only when an AI operation is used |
 | `AI_MODEL` | `gpt-4.1-mini` | Model used for moderation and place routing |
+| `AI_MODERATION_URL` | OpenAI Moderations API | Image-moderation endpoint |
+| `AI_MODERATION_MODEL` | `omni-moderation-latest` | Model used for DIG image and video-frame moderation |
 | `AI_TIMEOUT_SECONDS` | `8` | Maximum wait for a model decision |
 | `POSTGRES_DB` | `placepulse` | PostgreSQL database name |
 | `POSTGRES_USER` | `placepulse` | PostgreSQL user |
@@ -66,6 +68,12 @@ Presence expires after 90 seconds without a heartbeat. A completed presence beco
 After sharing a location, the main screen connects to the authenticated KNOCK WebSocket and loads recent messages from every active place layer. Messages are routed to one matching layer, so a building KNOCK is not broadcast to unrelated places. Accepted messages are stored in PostgreSQL and return after reconnecting.
 
 `VISITOR` messages are moderated before publication and fail closed if the AI provider is unavailable. `BELONG` messages appear immediately and create a PostgreSQL background job for the worker to check afterward. Set `AI_API_KEY` in `.env` to send visitor messages or route messages when OpenStreetMap returns multiple nested places.
+
+## DIG temporary media
+
+Open the **DIG** tab after sharing your location to view or post media for any active place layer. A DIG may be a JPEG, PNG, WebP, MP4, or WebM file up to 10 MB; videos are limited to 15 seconds. Every upload is validated and moderated before it is written to the persistent media volume or listed in the feed.
+
+Approved DIGs remain available to users currently at that place for 24 hours. Rejected and expired media is not shown. Videos are checked using three representative frames because the configured moderation model accepts images rather than video files directly. Set `AI_API_KEY` in `.env` to publish DIGs in a live demo; automated tests use a fake provider.
 
 ## AI moderation and worker
 
