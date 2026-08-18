@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   backend-tests:
@@ -56,3 +57,55 @@ jobs:
       - name: Stop fresh stack
         if: always()
         run: docker compose down -v
+
+  deploy-azure:
+    name: Deploy to Azure VM
+    needs: [backend-tests, frontend-build, fresh-compose-start]
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request' &&
+      vars.AZURE_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: azure-production
+    concurrency:
+      group: azure-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CORE_OUTPUT: none
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AZURE_VM_NAME: ${{ vars.AZURE_VM_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Deploy tested commit to the VM
+        env:
+          DEPLOY_COMMIT: ${{ github.sha }}
+        run: |
+          if [[ -z "$AZURE_RESOURCE_GROUP" || -z "$AZURE_VM_NAME" ]]; then
+            echo "Azure deployment variables are not configured." >&2
+            exit 1
+          fi
+
+          az vm show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_VM_NAME" \
+            --output none
+
+          deployment_script="$(< deploy/azure/update-vm.sh)"
+          az vm run-command invoke \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_VM_NAME" \
+            --command-id RunShellScript \
+            --scripts "$deployment_script" \
+            --parameters "$DEPLOY_COMMIT" \
+            --query "value[0].message" \
+            --output tsv
