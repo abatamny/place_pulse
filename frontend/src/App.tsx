@@ -73,6 +73,46 @@ type DigFeedResponse = {
   digs: Dig[];
 };
 
+type ExploreDig = {
+  id: number;
+  user_id: number;
+  nickname: string;
+  media_type: "image" | "video";
+  content_type: string;
+  original_filename: string;
+  media_url: string;
+  created_at: string;
+};
+
+type ExploreComment = {
+  id: number;
+  user_id: number;
+  nickname: string;
+  text: string;
+  created_at: string;
+};
+
+type ExploreMemory = {
+  id: number;
+  place_id: number;
+  place_name: string;
+  created_at: string;
+  participant: boolean;
+  liked_by_me: boolean;
+  like_count: number;
+  digs: ExploreDig[];
+  comments: ExploreComment[];
+};
+
+type ExploreFeedResponse = {
+  memories: ExploreMemory[];
+};
+
+type ExploreLikeResponse = {
+  liked_by_me: boolean;
+  like_count: number;
+};
+
 const TOKEN_KEY = "placepulse-session";
 
 async function apiRequest<T>(
@@ -726,6 +766,261 @@ function DigPanel({
   );
 }
 
+function ExploreMedia({ dig, token }: { dig: ExploreDig; token: string }) {
+  const [source, setSource] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl = "";
+    fetch(dig.media_url, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Memory media is unavailable");
+        }
+        return response.blob();
+      })
+      .then((blob) => {
+        if (active) {
+          objectUrl = URL.createObjectURL(blob);
+          setSource(objectUrl);
+        }
+      })
+      .catch((caught) => {
+        if (active) {
+          setError(caught instanceof Error ? caught.message : "Media unavailable");
+        }
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [dig.id, dig.media_url, token]);
+
+  if (error) {
+    return <p className="dig-media-state">{error}</p>;
+  }
+  if (!source) {
+    return <p className="dig-media-state">Loading memory...</p>;
+  }
+  if (dig.media_type === "video") {
+    return <video className="dig-media" controls playsInline src={source} />;
+  }
+  return (
+    <img
+      alt={`Memory shared by ${dig.nickname}`}
+      className="dig-media"
+      src={source}
+    />
+  );
+}
+
+function ExploreMemoryCard({
+  memory,
+  token,
+  onChange,
+}: {
+  memory: ExploreMemory;
+  token: string;
+  onChange: (memory: ExploreMemory) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function toggleLike() {
+    setBusy(true);
+    setError("");
+    try {
+      const reaction = await apiRequest<ExploreLikeResponse>(
+        `/api/explore/${memory.id}/likes`,
+        { method: memory.liked_by_me ? "DELETE" : "POST" },
+        token,
+      );
+      onChange({ ...memory, ...reaction });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not update like");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addComment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const comment = await apiRequest<ExploreComment>(
+        `/api/explore/${memory.id}/comments`,
+        { method: "POST", body: JSON.stringify({ text }) },
+        token,
+      );
+      onChange({ ...memory, comments: [...memory.comments, comment] });
+      setDraft("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not add comment");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <article className="explore-memory">
+      <header className="explore-memory-heading">
+        <div>
+          <strong>{memory.place_name}</strong>
+          <time dateTime={memory.created_at}>
+            Saved {new Date(memory.created_at).toLocaleString()}
+          </time>
+        </div>
+        <span className="memory-access">
+          {memory.participant ? "Your memory" : "Here now"}
+        </span>
+      </header>
+
+      <div className="explore-media-grid">
+        {memory.digs.map((dig) => (
+          <div className="explore-media-item" key={dig.id}>
+            <ExploreMedia dig={dig} token={token} />
+            <span>{dig.nickname}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="explore-actions">
+        <button
+          className={`button button--secondary ${memory.liked_by_me ? "explore-liked" : ""}`}
+          disabled={busy}
+          onClick={() => void toggleLike()}
+          type="button"
+        >
+          {memory.liked_by_me ? "Liked" : "Like"} · {memory.like_count}
+        </button>
+        <span>{memory.comments.length} comments</span>
+      </div>
+
+      <div className="explore-comments">
+        {memory.comments.length === 0 ? (
+          <p className="explore-comment-empty">No comments yet.</p>
+        ) : (
+          memory.comments.map((comment) => (
+            <div className="explore-comment" key={comment.id}>
+              <strong>{comment.nickname}</strong>
+              <p>{comment.text}</p>
+              <time dateTime={comment.created_at}>
+                {new Date(comment.created_at).toLocaleString()}
+              </time>
+            </div>
+          ))
+        )}
+      </div>
+
+      {error && <p className="knock-error">{error}</p>}
+      <form className="explore-comment-form" onSubmit={addComment}>
+        <label htmlFor={`memory-comment-${memory.id}`}>Add a comment</label>
+        <div>
+          <input
+            id={`memory-comment-${memory.id}`}
+            maxLength={500}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="What do you remember?"
+            value={draft}
+          />
+          <button className="button" disabled={busy || !draft.trim()} type="submit">
+            Post
+          </button>
+        </div>
+      </form>
+    </article>
+  );
+}
+
+function ExplorePanel({
+  token,
+  places,
+}: {
+  token: string;
+  places: CurrentPlace[];
+}) {
+  const [memories, setMemories] = useState<ExploreMemory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const placeKey = places.map((place) => place.id).join(",");
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    apiRequest<ExploreFeedResponse>("/api/explore", {}, token)
+      .then((response) => {
+        if (active) {
+          setMemories(response.memories);
+        }
+      })
+      .catch((caught) => {
+        if (active) {
+          setError(caught instanceof Error ? caught.message : "Could not load memories");
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [placeKey, token]);
+
+  function updateMemory(updated: ExploreMemory) {
+    setMemories((current) =>
+      current.map((memory) => (memory.id === updated.id ? updated : memory)),
+    );
+  }
+
+  return (
+    <section className="knock-card explore-card">
+      <header className="knock-heading">
+        <div>
+          <p className="eyebrow">Long-term place memory</p>
+          <h2>Explore</h2>
+        </div>
+        <span className="memory-permanent">Permanent</span>
+      </header>
+
+      {error && <p className="knock-error">{error}</p>}
+      <div className="explore-feed" aria-live="polite">
+        {loading ? (
+          <div className="feed-empty"><p>Loading memories...</p></div>
+        ) : memories.length === 0 ? (
+          <div className="feed-empty">
+            <p>No accessible memories yet.</p>
+            <span>Three nearby DIGs within an hour can create one.</span>
+          </div>
+        ) : (
+          memories.map((memory) => (
+            <ExploreMemoryCard
+              key={memory.id}
+              memory={memory}
+              onChange={updateMemory}
+              token={token}
+            />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
 function SignedInApp({
   token,
   user,
@@ -736,7 +1031,9 @@ function SignedInApp({
   onLogout: () => void;
 }) {
   const [places, setPlaces] = useState<CurrentPlace[]>([]);
-  const [mainView, setMainView] = useState<"knock" | "dig">("knock");
+  const [mainView, setMainView] = useState<"knock" | "dig" | "explore">(
+    "knock",
+  );
 
   return (
     <main className="app-shell">
@@ -788,11 +1085,20 @@ function SignedInApp({
             >
               DIG
             </button>
+            <button
+              className={mainView === "explore" ? "active" : ""}
+              onClick={() => setMainView("explore")}
+              type="button"
+            >
+              Explore
+            </button>
           </nav>
           {mainView === "knock" ? (
             <KnockPanel places={places} token={token} user={user} />
-          ) : (
+          ) : mainView === "dig" ? (
             <DigPanel places={places} token={token} />
+          ) : (
+            <ExplorePanel places={places} token={token} />
           )}
         </div>
       </div>

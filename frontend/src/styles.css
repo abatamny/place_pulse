@@ -680,6 +680,133 @@ dd {
   font-size: 0.75rem;
 }
 
+.memory-permanent,
+.memory-access {
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  background: #e8e2f8;
+  color: #554080;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.explore-feed {
+  display: grid;
+  min-height: 20rem;
+  gap: 1rem;
+  padding: 1rem;
+  background: #f8faf9;
+}
+
+.explore-memory {
+  overflow: hidden;
+  border: 1px solid #d8e5de;
+  border-radius: 0.85rem;
+  background: #fff;
+}
+
+.explore-memory-heading,
+.explore-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 0.9rem;
+}
+
+.explore-memory-heading > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.explore-memory-heading time,
+.explore-actions span,
+.explore-media-item > span {
+  color: #61766f;
+  font-size: 0.75rem;
+}
+
+.explore-media-grid {
+  display: grid;
+  gap: 0.25rem;
+  background: #173b34;
+}
+
+.explore-media-item {
+  position: relative;
+  min-width: 0;
+}
+
+.explore-media-item .dig-media,
+.explore-media-item .dig-media-state {
+  min-height: 12rem;
+  height: 100%;
+}
+
+.explore-media-item > span {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 0.4rem;
+  background: rgb(23 59 52 / 82%);
+  color: #fff;
+}
+
+.explore-actions {
+  border-bottom: 1px solid #e2ebe6;
+}
+
+.explore-actions .button {
+  padding: 0.55rem 0.75rem;
+}
+
+.explore-liked {
+  background: #e8e2f8;
+  color: #554080;
+}
+
+.explore-comments {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem;
+}
+
+.explore-comment {
+  display: grid;
+  gap: 0.2rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e2ebe6;
+}
+
+.explore-comment p,
+.explore-comment-empty {
+  margin: 0;
+  color: #314b44;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.explore-comment time,
+.explore-comment-empty {
+  color: #61766f;
+  font-size: 0.72rem;
+}
+
+.explore-comment-form {
+  gap: 0.5rem;
+  padding: 0 0.9rem 0.9rem;
+}
+
+.explore-comment-form > div {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.explore-comment-form .button {
+  flex: 0 0 auto;
+}
+
 @media (min-width: 760px) {
   .auth-card {
     display: grid;
@@ -704,5 +831,9 @@ dd {
   .app-sidebar {
     position: sticky;
     top: 1.5rem;
+  }
+
+  .explore-media-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
