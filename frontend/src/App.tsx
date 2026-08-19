@@ -821,6 +821,31 @@ function DigMedia({
   );
 }
 
+function formatDigAge(createdAt: string, now: number) {
+  const elapsedMinutes = Math.max(
+    1,
+    Math.floor((now - new Date(createdAt).getTime()) / 60_000),
+  );
+
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes} ${elapsedMinutes === 1 ? "minute" : "minutes"} ago`;
+  }
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  return `${elapsedHours} ${elapsedHours === 1 ? "hour" : "hours"} ago`;
+}
+
+function DigSharedTime({ createdAt }: { createdAt: string }) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  return <time dateTime={createdAt}>{formatDigAge(createdAt, now)}</time>;
+}
+
 function DigPanel({
   token,
   places,
@@ -1104,7 +1129,10 @@ function DigPanel({
         <article className="dig-expanded-card">
           <header className="popover-header">
             <div>
-              <strong>{selectedDig.nickname}</strong>
+              <span className="dig-author-row">
+                <strong>{selectedDig.nickname}</strong>
+                <DigSharedTime createdAt={selectedDig.created_at} />
+              </span>
               <span>{selectedDig.place_display_name}</span>
             </div>
             <button
@@ -1117,10 +1145,6 @@ function DigPanel({
             </button>
           </header>
           <DigMedia dig={selectedDig} token={token} />
-          <footer>
-            <span>Shared {new Date(selectedDig.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-            <span>Expires {new Date(selectedDig.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-          </footer>
         </article>
       )}
     </div>

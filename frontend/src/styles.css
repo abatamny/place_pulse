@@ -1953,6 +1953,30 @@ button:focus-visible {
   white-space: nowrap;
 }
 
+.popover-header .dig-author-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  overflow: visible;
+  color: var(--ink);
+  font-size: inherit;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.dig-author-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dig-author-row time {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
 .dig-upload-popover .dig-composer {
   gap: 0.75rem;
   padding: 0.9rem 1rem 0;
@@ -1978,15 +2002,6 @@ button:focus-visible {
   max-height: min(58vh, 31rem);
   min-height: 14rem;
   object-fit: contain;
-}
-
-.dig-expanded-card footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.7rem 0.9rem;
-  color: var(--muted);
-  font-size: 0.7rem;
 }
 
 .dig-map-notice {
@@ -2447,11 +2462,6 @@ button:focus-visible {
 
   .dig-expanded-card {
     width: calc(100% - 1rem);
-  }
-
-  .dig-expanded-card footer {
-    flex-direction: column;
-    gap: 0.15rem;
   }
 
   .map-location-control {
