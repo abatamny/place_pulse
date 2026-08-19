@@ -64,9 +64,10 @@ Do not replace these technologies or add an alternative framework for the same r
 ### 3. Places and presence
 
 - Resolve every browser location heartbeat to one or more named OpenStreetMap objects.
-- Store each discovered place locally with an internal `place_id`, OSM type/ID, name, boundary, and optional parent place.
+- Store each discovered place locally with an internal `place_id`, OSM type/ID, name, locality, boundary, and optional parent place.
 - Upsert resolved places by their OSM type/ID so content keeps stable internal place references without using broad stored boundaries to decide later heartbeats.
 - Support nested places such as campus -> faculty -> building.
+- Format place labels consistently as `Primary place · Parent place, City`, omitting missing or duplicate parts.
 - Use heartbeats while the app is open and expire stale presence.
 - Record visits and promote repeated users from `VISITOR` to `BELONG` using a simple threshold.
 
@@ -140,13 +141,14 @@ Build the small frontend needed for each feature together with its backend. Do n
 
 - Request browser coordinates while the app is open and send periodic updates to the backend.
 - Resolve coordinates through OpenStreetMap on every location heartbeat so newly mapped or more specific nested places can be discovered.
-- Create/update local place records from the returned OSM identifiers, names, boundaries, and containment relationships.
+- Create/update local place records from the returned OSM identifiers, names, locality, boundaries, and containment relationships.
 - Reuse internal place IDs by upserting OSM objects, but do not use stored boundaries as a shortcut for heartbeat resolution.
 - Support nested places and show the detected place in the UI.
+- Use one backend-generated `Primary place · Parent place, City` label across current presence and all place-scoped content.
 - Expire stale presence, record completed visits, and promote a user from `VISITOR` to `BELONG` after a simple visit threshold.
 - Test coordinate mapping, nested places, stale presence, visit recording, and rank promotion.
 
-**Complete when:** sharing a real browser location discovers and stores the correct OSM-backed place, every update can discover newly returned nested places without duplicating existing OSM objects, and visits/rank persist in the database.
+**Complete when:** sharing a real browser location discovers and stores the correct OSM-backed place and locality, every update can discover newly returned nested places without duplicating existing OSM objects, canonical labels are consistent across place-scoped features, and visits/rank persist in the database.
 
 ### Step 4 - AI jobs used by the core features
 

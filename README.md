@@ -106,10 +106,12 @@ Passwords are Argon2-hashed. Login creates a random, revocable session whose tok
 
 1. Log in and select **Share my location**.
 2. Allow the browser's location prompt. Localhost is treated as a secure browser context for geolocation.
-3. The backend resolves the coordinates through OpenStreetMap and displays nested places, such as a campus and its building.
+3. The backend resolves the coordinates through OpenStreetMap and displays nested places with a consistent label such as `Engineering Building · Technion Campus, Haifa`.
 4. While location sharing remains enabled, the page sends a heartbeat every 30 seconds. Each heartbeat is resolved through OpenStreetMap so a previously stored broad place cannot hide a newly returned inner place. Existing OSM objects are upserted to keep their internal place IDs stable.
 
 Presence expires after 90 seconds without a heartbeat. A completed presence becomes a saved visit, and three completed visits at a place promote the user from `VISITOR` to `BELONG`.
+
+The same backend-generated place label is used for current presence, KNOCK, DIG, Explore, and Forum. It contains the target place, its immediate parent when present, and the OSM city/locality; missing or duplicate parts are omitted. Direct messages are not place-scoped.
 
 ## KNOCK live messages
 

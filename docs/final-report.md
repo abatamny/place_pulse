@@ -13,7 +13,7 @@ PlacePulse is a mobile-friendly location-based community application. A verified
 ## Implemented features
 
 - Phone-style registration with optional Twilio SMS delivery and an automatic demo-code fallback when no provider is configured, Argon2 password hashing, revocable hashed sessions, login, and logout.
-- OpenStreetMap place resolution, stored PostGIS boundaries, expiring presence, completed visits, and VISITOR/BELONG membership.
+- OpenStreetMap place/locality resolution, consistent `Primary · Parent, City` labels, stored PostGIS boundaries, expiring presence, completed visits, and VISITOR/BELONG membership.
 - KNOCK place-scoped live messages with WebSockets, persistence, nested-place routing, and role-aware AI moderation.
 - DIG temporary image/video uploads with validation, moderation, presence access, and 24-hour expiry.
 - Explore memories produced from DIG activity, persistent participant access, current-place access, likes, and comments.
