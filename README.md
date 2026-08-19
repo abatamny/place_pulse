@@ -133,7 +133,7 @@ Every author whose DIG was selected is a participant and can revisit that memory
 
 ## Place forum and personal area
 
-Open **Forum** after sharing your location to read or create persistent text posts for any active place layer. Posts may be anonymous, and present users can add comments or change an upvote/downvote. Post and comment text is moderated before publication and fails closed if the configured AI provider is unavailable. Forum media is intentionally omitted to keep this optional course feature small.
+Open **Forum** after sharing your location to read persistent text posts for any active place layer. When creating a post, the backend records the deepest current place as its origin and uses the text to choose an audience only from that place or its active ancestors. Posts may be anonymous, and present users can add comments or change an upvote/downvote. Post and comment text is moderated before publication and fails closed if the configured AI provider is unavailable. Forum media is intentionally omitted to keep this optional course feature small.
 
 The **My posts** view remains available after leaving a place. It lists the signed-in user's posts and totals their received likes, dislikes, and net score. Anonymous posts never reveal their author in public API responses.
 
@@ -146,6 +146,8 @@ An authenticated WebSocket remains connected while the signed-in app is open. Ne
 ## AI moderation and worker
 
 The backend has one adapter for structured text-moderation and nested-place routing decisions. Pre-publication calls have a timeout and fail closed: invalid input, prompt-injection patterns, invalid model output, and provider failures never produce an approval.
+
+DIG and forum composers do not ask the user to select a place. Forum text and sampled DIG frames may broaden the audience from the deepest current place to one of its validated active ancestors. Media routing requires a high-confidence decision; uncertain, invalid, or unavailable routing falls back to the deepest origin without blocking otherwise approved content.
 
 Post-publication moderation is placed in the PostgreSQL `ai_jobs` table. The internal `worker` service rotates among users' oldest jobs so one busy user cannot starve everyone else, records a completed structured result or a safe failed status, and continues running after model errors.
 
