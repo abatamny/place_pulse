@@ -6,7 +6,9 @@ import httpx
 import pytest
 
 from app.ai import (
+    AIProviderError,
     ImageModerationInput,
+    LocalAIAdapter,
     MediaRoutingDecision,
     ModerationDecision,
     OpenAIAdapter,
@@ -96,6 +98,73 @@ def provider_adapter(
         request_timeout=1,
         transport=httpx.MockTransport(handler),
     )
+
+
+def test_local_adapter_calls_small_internal_api() -> None:
+    observed: list[tuple[str, dict]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        observed.append((request.url.path, body))
+        if request.url.path == "/v1/moderate/text":
+            return httpx.Response(
+                200,
+                json={"approved": True, "reason": "Safe text", "categories": []},
+            )
+        if request.url.path == "/v1/moderate/images":
+            return httpx.Response(
+                200,
+                json={
+                    "approved": False,
+                    "reason": "Unsafe image",
+                    "categories": ["sexual"],
+                },
+            )
+        return httpx.Response(
+            200,
+            json={"place_id": 2, "reason": "The building was named"},
+        )
+
+    adapter = LocalAIAdapter(
+        base_url="http://local-ai:8081",
+        request_timeout=1,
+        transport=httpx.MockTransport(handler),
+    )
+    places = [
+        PlaceRouteOption(place_id=1, name="Campus"),
+        PlaceRouteOption(place_id=2, name="Building", parent_place_id=1),
+    ]
+
+    text_decision = asyncio.run(adapter.moderate_text("Hello"))
+    image_decision = asyncio.run(
+        adapter.moderate_images(
+            [ImageModerationInput(content_type="image/jpeg", data=b"image")]
+        )
+    )
+    route = asyncio.run(adapter.route_forum_post("In Building", places))
+
+    assert text_decision.approved is True
+    assert image_decision.categories == ["sexual"]
+    assert route.place_id == 2
+    assert [item[0] for item in observed] == [
+        "/v1/moderate/text",
+        "/v1/moderate/images",
+        "/v1/route/text",
+    ]
+    assert observed[1][1]["images"][0]["data_base64"] == "aW1hZ2U="
+    assert observed[2][1]["mode"] == "forum"
+
+
+def test_local_adapter_does_not_claim_vision_routing_support() -> None:
+    adapter = LocalAIAdapter(base_url="http://local-ai:8081", request_timeout=1)
+
+    with pytest.raises(AIProviderError, match="do not support semantic media routing"):
+        asyncio.run(
+            adapter.route_media(
+                [ImageModerationInput(content_type="image/jpeg", data=b"image")],
+                [PlaceRouteOption(place_id=1, name="Campus")],
+            )
+        )
 
 
 def test_openai_compatible_chat_returns_validated_json() -> None:

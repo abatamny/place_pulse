@@ -43,12 +43,26 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+  local-ai-contract-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install lightweight contract-test dependencies
+        run: pip install pydantic==2.11.7 pytest==8.4.1
+      - name: Test local model output parsing and safety mapping
+        env:
+          PYTHONPATH: local_ai
+        run: pytest -q local_ai/tests
+
   fresh-compose-start:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build and start the complete stack
-        run: docker compose up --build -d
+        run: docker compose up --build -d db backend worker web
       - name: Wait for the public application
         run: |
           for attempt in {1..45}; do
@@ -70,7 +84,7 @@ jobs:
 
   deploy-azure:
     name: Deploy to Azure VM
-    needs: [backend-tests, frontend-build, fresh-compose-start]
+    needs: [backend-tests, frontend-build, local-ai-contract-tests, fresh-compose-start]
     if: >-
       github.ref == 'refs/heads/main' &&
       github.event_name != 'pull_request' &&

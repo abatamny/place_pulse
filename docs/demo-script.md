@@ -4,8 +4,8 @@ This is a short recording checklist, not application seed data. Create the demo 
 
 ## Before recording
 
-1. Keep the private `.env` file in place with the OpenAI-compatible `qwen3.7-plus` settings. Never show the key on screen.
-2. Run `docker compose up --build -d` and confirm <http://localhost:8080/api/health> reports healthy.
+1. Run `docker compose up --build -d` early enough for the first model download and startup to finish.
+2. Confirm <http://localhost:8080/api/health> reports healthy and `docker compose ps local-ai` reports the local inference service as healthy.
 3. Prepare a small valid JPEG or PNG and, if desired, a video shorter than 15 seconds and 10 MB.
 4. Open a second private/incognito browser window for the second user.
 
