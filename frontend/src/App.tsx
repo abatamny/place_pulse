@@ -191,7 +191,12 @@ type PersonalForumResponse = {
 type DMUser = {
   id: number;
   nickname: string;
-  phone: string;
+  phone?: string;
+};
+
+type DMChatRequest = {
+  requestId: number;
+  user: DMUser;
 };
 
 type DMMessage = {
@@ -1969,6 +1974,7 @@ function ForumPanel({
 function DMPanel({
   token,
   user,
+  chatRequest,
   incomingMessage,
   socketStatus,
   onUnreadChange,
@@ -1977,6 +1983,7 @@ function DMPanel({
 }: {
   token: string;
   user: User;
+  chatRequest: DMChatRequest | null;
   incomingMessage: DMMessage | null;
   socketStatus: "connecting" | "connected" | "disconnected";
   onUnreadChange: (count: number) => void;
@@ -1994,6 +2001,17 @@ function DMPanel({
   const [sending, setSending] = useState(false);
   const [chatMinimized, setChatMinimized] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!chatRequest) {
+      return;
+    }
+    setSelectedUser(chatRequest.user);
+    setChatMinimized(false);
+    setSearchResults([]);
+    setError("");
+    onSidebarClose();
+  }, [chatRequest?.requestId]);
 
   useLayoutEffect(() => {
     if (chatMinimized || loading || !messagesRef.current) {
@@ -2240,7 +2258,7 @@ function DMPanel({
               {searchResults.map((person) => (
                 <button key={person.id} onClick={() => openConversation(person)} type="button">
                   <strong>{person.nickname}</strong>
-                  <span>{person.phone}</span>
+                  {person.phone && <span>{person.phone}</span>}
                 </button>
               ))}
             </div>
@@ -2401,6 +2419,8 @@ function SignedInApp({
 }) {
   const [places, setPlaces] = useState<CurrentPlace[]>([]);
   const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
+  const [selectedNearbyUser, setSelectedNearbyUser] = useState<NearbyUser | null>(null);
+  const [dmChatRequest, setDmChatRequest] = useState<DMChatRequest | null>(null);
   const [activeOverlay, setActiveOverlay] = useState<"explore" | "forum" | null>(null);
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -2409,6 +2429,39 @@ function SignedInApp({
   const [dmSocketStatus, setDmSocketStatus] = useState<
     "connecting" | "connected" | "disconnected"
   >("connecting");
+
+  useEffect(() => {
+    if (
+      selectedNearbyUser &&
+      !nearbyUsers.some((nearbyUser) => nearbyUser.id === selectedNearbyUser.id)
+    ) {
+      setSelectedNearbyUser(null);
+    }
+  }, [nearbyUsers, selectedNearbyUser]);
+
+  useEffect(() => {
+    if (!selectedNearbyUser) {
+      return;
+    }
+    function closeNearbyUserCard(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSelectedNearbyUser(null);
+      }
+    }
+    window.addEventListener("keydown", closeNearbyUserCard);
+    return () => window.removeEventListener("keydown", closeNearbyUserCard);
+  }, [selectedNearbyUser]);
+
+  function openNearbyUserChat(nearbyUser: NearbyUser) {
+    setDmChatRequest((current) => ({
+      requestId: (current?.requestId ?? 0) + 1,
+      user: {
+        id: nearbyUser.id,
+        nickname: nearbyUser.nickname,
+      },
+    }));
+    setSelectedNearbyUser(null);
+  }
 
   useEffect(() => {
     let active = true;
@@ -2564,19 +2617,60 @@ function SignedInApp({
 
             {nearbyUsers.map((nearbyUser) => {
               const position = nearbyMarkerPosition(nearbyUser.id);
+              const isSelected = selectedNearbyUser?.id === nearbyUser.id;
+              const cardAlignment =
+                position.left < 35
+                  ? "nearby-user-card--align-left"
+                  : position.left > 65
+                    ? "nearby-user-card--align-right"
+                    : "";
               return (
                 <div
-                  aria-label={`${nearbyUser.nickname}, nearby at ${nearbyUser.shared_place_display_name}`}
-                  className={`map-nearby-marker map-nearby-marker--${nearbyUser.id % 4}`}
+                  className={`map-nearby-marker map-nearby-marker--${nearbyUser.id % 4} ${isSelected ? "map-nearby-marker--open" : ""}`}
                   key={nearbyUser.id}
-                  role="img"
                   style={{ left: `${position.left}%`, top: `${position.top}%` }}
-                  title={`Nearby at ${nearbyUser.shared_place_display_name}`}
                 >
-                  <span aria-hidden="true" className="nearby-user-blob">
-                    {nearbyUser.nickname.slice(0, 1).toUpperCase()}
-                  </span>
-                  <strong>{nearbyUser.nickname}</strong>
+                  <button
+                    aria-controls={`nearby-user-card-${nearbyUser.id}`}
+                    aria-expanded={isSelected}
+                    aria-label={`Open actions for ${nearbyUser.nickname}, nearby at ${nearbyUser.shared_place_display_name}`}
+                    className="nearby-user-trigger"
+                    onClick={() =>
+                      setSelectedNearbyUser((current) =>
+                        current?.id === nearbyUser.id ? null : nearbyUser,
+                      )
+                    }
+                    title={`Nearby at ${nearbyUser.shared_place_display_name}`}
+                    type="button"
+                  >
+                    <span aria-hidden="true" className="nearby-user-blob">
+                      {nearbyUser.nickname.slice(0, 1).toUpperCase()}
+                    </span>
+                    <strong>{nearbyUser.nickname}</strong>
+                  </button>
+                  {isSelected && (
+                    <section
+                      aria-label={`Actions for ${nearbyUser.nickname}`}
+                      className={`nearby-user-card ${cardAlignment}`}
+                      id={`nearby-user-card-${nearbyUser.id}`}
+                    >
+                      <span aria-hidden="true" className="nearby-user-card-avatar">
+                        {nearbyUser.nickname.slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="nearby-user-card-copy">
+                        <strong>{nearbyUser.nickname}</strong>
+                        <small>Nearby at {nearbyUser.shared_place_display_name}</small>
+                      </span>
+                      <button
+                        className="button nearby-user-message-button"
+                        onClick={() => openNearbyUserChat(nearbyUser)}
+                        type="button"
+                      >
+                        <Icon name="messages" size={16} />
+                        Send direct message
+                      </button>
+                    </section>
+                  )}
                 </div>
               );
             })}
@@ -2617,6 +2711,7 @@ function SignedInApp({
       </div>
 
       <DMPanel
+        chatRequest={dmChatRequest}
         incomingMessage={latestDMMessage}
         onSidebarClose={() => setMessagesOpen(false)}
         onUnreadChange={setDmUnread}
