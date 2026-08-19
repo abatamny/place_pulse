@@ -20,8 +20,9 @@ Repository-wide working rules are in `AGENTS.md`. This file defines the project 
 - **Backend API container:** owns authentication, users, OSM place resolution, presence, visits, KNOCK WebSockets, DIG uploads, and Explore endpoints.
 - **Relational database container:** stores users, OSM-backed places and boundaries, presence/visits, messages, DIG metadata, Explore memories, reactions, and background-job state.
 - **Worker container:** processes post-publication moderation and Explore/background jobs from a simple database jobs table.
+- **Local Overpass container:** imports the Israel and Palestine Geofabrik extract, builds the derived area index required by `is_in`, and serves queries only on the internal Docker network.
 - **Media volume:** stores uploaded images/videos; the database stores only their metadata and safe file paths.
-- **External services:** only the backend contacts OpenStreetMap and the configured AI provider. A local LLM may replace the AI provider later for optional points.
+- **External services:** the Overpass container downloads its regional OpenStreetMap extract from Geofabrik during first initialization. At runtime, only the backend contacts the internal Overpass API and the configured AI provider. A local LLM may replace the AI provider later for optional points.
 
 The application database may start empty. Places are created when coordinates are resolved through OpenStreetMap, and users/content are created through the app. Demo/cold-seed data is postponed until the manual flows work.
 
@@ -38,7 +39,7 @@ Use this stack unless the user explicitly approves a change:
 | Database | PostgreSQL + PostGIS | One database container; PostGIS stores boundaries and supports geographic checks. |
 | Worker | Same Python backend image | Start it with a different command; use the database jobs table instead of a separate queue service. |
 | Media | Local Docker volume | Store files on disk and store metadata/safe paths in PostgreSQL. |
-| Location services | OpenStreetMap Overpass | Called only by the backend on every location heartbeat; persist resolved OSM objects/boundaries under stable internal IDs. |
+| Location services | Local OpenStreetMap Overpass seeded from Geofabrik | Called only by the backend on every location heartbeat; persist resolved OSM objects/boundaries under stable internal IDs. Keep Overpass and its persistent database internal to Docker. |
 | AI | One provider adapter | Use a configured external API for the core; a local LLM is optional later. |
 | Local orchestration | Docker Compose | Start the full application with one documented command. |
 
@@ -112,7 +113,8 @@ Do not replace these technologies or add an alternative framework for the same r
 ### 9. Docker setup
 
 - One Docker Compose setup starts the complete local app.
-- Services may include web, backend, database, worker, and an optional local LLM.
+- Services may include web, backend, database, worker, local Overpass, and an optional local LLM.
+- Initialize local Overpass from the Israel and Palestine Geofabrik PBF, persist its index in a named volume, and enable derived areas for coordinate containment queries.
 - Only the public web service exposes a host port; internal services stay private.
 - Include `.env.example` without secrets and one reliable startup command.
 

@@ -1,5 +1,6 @@
 import pytest
 
+from app.config import settings
 from app.osm import OSMPlaceResolver, PlaceResolutionError, ResolvedPlace
 
 
@@ -48,6 +49,15 @@ def test_osm_scope_classification_preserves_useful_unknown_features() -> None:
     assert classify({"leisure": "park"}) == "OUTDOOR"
     assert classify({"landuse": "residential"}) == "DISTRICT"
     assert classify({"name": "Locally useful enclosure"}) == "OTHER"
+
+
+def test_osm_query_uses_configured_timeout_and_containment() -> None:
+    query = OSMPlaceResolver._overpass_query(32.0, 35.0)
+
+    assert f"[timeout:{settings.overpass_timeout_seconds}]" in query
+    assert "is_in(32.0,35.0)->.areas" in query
+    assert 'way(pivot.areas)["name"]' in query
+    assert 'rel(pivot.areas)["name"]' in query
 
 
 def test_osm_resolver_returns_an_empty_overpass_result_without_fallback(

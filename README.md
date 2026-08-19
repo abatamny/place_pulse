@@ -9,7 +9,8 @@ PlacePulse is a mobile-first course project for interacting with people and cont
 ## Requirements
 
 - Docker Desktop, or Docker Engine with Docker Compose v2
-- Several GB of free disk and memory for the three local models
+- Several GB of free disk and memory for the three local models and regional Overpass index
+- SSD storage is strongly recommended for the first Overpass import
 
 No local Node.js, Python, PostgreSQL, or PostGIS installation is required.
 
@@ -23,7 +24,7 @@ docker compose up --build -d
 
 Open <http://localhost:8080>. The backend health endpoint is available through the public web service at <http://localhost:8080/api/health>.
 
-This one command builds the React frontend, FastAPI backend, and local AI service; starts PostGIS; creates the application schema automatically; starts the background worker; and starts Nginx. The first start downloads the configured Hugging Face model weights into the persistent `ai_models` volume, so local moderation may take several minutes to become ready. Only Nginx is exposed on the host; the backend, worker, database, and local AI service remain on the internal Compose network.
+This one command builds the React frontend, FastAPI backend, and local AI service; starts PostGIS; initializes the regional Overpass database; creates the application schema automatically; starts the background worker; and starts Nginx. The first start downloads the configured Hugging Face model weights and the Israel and Palestine Geofabrik extract. Model weights persist in `ai_models`, while the imported Overpass index persists in `overpass_data`. Initial indexing and area generation can take substantially longer than an ordinary restart. Only Nginx is exposed on the host; the backend, worker, database, local AI service, and Overpass remain on the internal Compose network.
 
 ## Configuration
 
@@ -40,7 +41,9 @@ The defaults work without creating an `.env` file. To change them, copy `.env.ex
 | `TWILIO_FROM_NUMBER` | empty | Message-capable Twilio sender number in international format |
 | `SMS_TIMEOUT_SECONDS` | `8` | Maximum wait for SMS delivery acceptance |
 | `OSM_USER_AGENT` | `PlacePulse-Course-Project/0.1` | Identifies backend requests to OpenStreetMap services |
-| `OVERPASS_URL` | public Overpass URL | Containing-place and boundary endpoint |
+| `OVERPASS_URL` | `http://overpass/api` | Docker-internal containing-place and boundary endpoint |
+| `OVERPASS_PLANET_URL` | Israel and Palestine Geofabrik PBF | Regional extract downloaded on first Overpass initialization |
+| `OVERPASS_TIMEOUT_SECONDS` | `20` | Shared HTTP and Overpass-query timeout for one heartbeat lookup |
 | `AI_PROVIDER` | `local` | Use the internal local service; `openai` and `openai-compatible` remain available as fallbacks |
 | `AI_LOCAL_URL` | `http://local-ai:8081` | Docker-internal inference service URL |
 | `TEXT_SAFETY_MODEL_ID` | `Qwen/Qwen3Guard-Gen-0.6B` | Local text-safety model |
@@ -130,6 +133,26 @@ For demos and testing, the map's **Custom location** box accepts an `https://ope
 Presence expires after 90 seconds without a heartbeat. A completed presence becomes a saved visit, and three completed visits at a place promote the user from `VISITOR` to `BELONG`.
 
 The innermost orbit is selected automatically. Clicking another orbit changes one shared active scope for KNOCK, DIG, Explore, and Forum; it does not change the user's physical presence. Scope identity comes from the stable OSM object, while `VENUE`, `BUILDING`, `OUTDOOR`, `SITE`, `DISTRICT`, and `OTHER` classes provide deterministic colors and labels. The same backend-generated place label is used across every place-scoped feature. Direct messages are not place-scoped.
+
+### Local Overpass initialization
+
+The `overpass` service downloads the configured Geofabrik PBF only when its persistent database is empty. It converts the PBF, imports the current OSM objects, and builds the derived area index required by the application's `is_in` query. During this first import, the rest of PlacePulse can start normally, but location heartbeats return the existing temporary-unavailable error until area generation finishes.
+
+Follow initialization progress with:
+
+```sh
+docker compose logs -f overpass
+```
+
+When the service is healthy, verify a real coordinate through its internal API and the same query shape used by the backend:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/smoke-test-overpass.ps1
+```
+
+Custom coordinates can be supplied with `-Latitude` and `-Longitude`. The Overpass HTTP endpoint is intentionally not published to the host; the smoke script executes the request inside the container.
+
+The course-sized default is a static snapshot, so no replication feed runs in the background. To refresh it, first stop the stack with `docker compose down`, list the exact targeted volume with `docker volume ls --filter label=com.docker.compose.volume=overpass_data`, remove only that Overpass volume with `docker volume rm <exact-volume-name>`, and start the stack again. This rebuild does not require deleting the PostgreSQL, media, or model volumes. Removing a Docker volume is destructive, so verify the printed volume name before running the removal command.
 
 ## KNOCK live messages
 
@@ -269,7 +292,7 @@ Stop the application while preserving data:
 docker compose down
 ```
 
-Start it again with `docker compose up -d`; the named database and media volumes are reused.
+Start it again with `docker compose up -d`; the named database, media, model, and Overpass volumes are reused.
 
 Reset all local application data:
 
@@ -277,4 +300,4 @@ Reset all local application data:
 docker compose down -v
 ```
 
-The reset command permanently removes the local database and media volumes.
+The reset command permanently removes the local database, media, model-cache, and Overpass volumes. The next startup must download and import the models and regional OSM extract again.

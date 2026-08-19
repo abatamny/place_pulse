@@ -39,6 +39,39 @@ services:
       retries: 60
     restart: unless-stopped
 
+  overpass:
+    image: wiktorn/overpass-api:v0.7.62.9
+    environment:
+      OVERPASS_MODE: init
+      OVERPASS_META: "no"
+      OVERPASS_PLANET_URL: ${OVERPASS_PLANET_URL:-https://download.geofabrik.de/asia/israel-and-palestine-latest.osm.pbf}
+      OVERPASS_PLANET_PREPROCESS: >-
+        mv /db/planet.osm.bz2 /db/planet.osm.pbf &&
+        osmium cat -o /db/planet.osm.bz2 /db/planet.osm.pbf &&
+        rm /db/planet.osm.pbf
+      OVERPASS_USE_AREAS: "true"
+      OVERPASS_RULES_LOAD: "1"
+      OVERPASS_STOP_AFTER_INIT: "false"
+      OVERPASS_ALLOW_DUPLICATE_QUERIES: "yes"
+      OVERPASS_FASTCGI_PROCESSES: "2"
+      OVERPASS_UPDATE_SLEEP: "3600"
+    volumes:
+      - overpass_data:/db
+      - ./overpass/init-permissions.sh:/docker-entrypoint-initdb.d/10-permissions.sh:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          response=$$(curl --noproxy '*' -sSf
+          --data-urlencode 'data=[out:json][timeout:20];is_in(31.778,35.235);out ids;'
+          http://localhost/api/interpreter) &&
+          echo "$$response" | jq -e '.elements | length > 0' > /dev/null
+      start_period: 2h
+      interval: 30s
+      timeout: 25s
+      retries: 10
+    restart: unless-stopped
+
   backend:
     image: placepulse-backend
     build:
@@ -52,7 +85,8 @@ services:
       TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
       SMS_TIMEOUT_SECONDS: ${SMS_TIMEOUT_SECONDS:-8}
       OSM_USER_AGENT: ${OSM_USER_AGENT:-PlacePulse-Course-Project/0.1}
-      OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api}
+      OVERPASS_URL: ${OVERPASS_URL:-http://overpass/api}
+      OVERPASS_TIMEOUT_SECONDS: ${OVERPASS_TIMEOUT_SECONDS:-20}
       AI_PROVIDER: ${AI_PROVIDER:-local}
       AI_LOCAL_URL: ${AI_LOCAL_URL:-http://local-ai:8081}
       AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1/responses}
@@ -128,3 +162,4 @@ volumes:
   postgres_data:
   media_data:
   ai_models:
+  overpass_data:

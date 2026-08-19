@@ -19,9 +19,10 @@ class Settings:
     osm_user_agent: str = os.getenv(
         "OSM_USER_AGENT", "PlacePulse-Course-Project/0.1"
     )
-    overpass_url: str = os.getenv(
-        "OVERPASS_URL", "https://overpass-api.de/api"
-    ).rstrip("/")
+    overpass_url: str = os.getenv("OVERPASS_URL", "http://overpass/api").rstrip("/")
+    overpass_timeout_seconds: int = max(
+        1, int(os.getenv("OVERPASS_TIMEOUT_SECONDS", "20"))
+    )
     ai_provider: str = os.getenv("AI_PROVIDER", "local")
     ai_local_url: str = os.getenv("AI_LOCAL_URL", "http://local-ai:8081").rstrip("/")
     ai_api_url: str = os.getenv(
