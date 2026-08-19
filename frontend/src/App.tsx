@@ -53,6 +53,12 @@ type PresenceResponse = {
   expires_in_seconds: number;
 };
 
+type CustomLocation = {
+  url: string;
+  latitude: number;
+  longitude: number;
+};
+
 type KnockMessage = {
   id: number;
   place_id: number;
@@ -296,6 +302,72 @@ function updateDMConversations(
 }
 
 const TOKEN_KEY = "placepulse-session";
+const CUSTOM_LOCATION_KEY = "placepulse-custom-location-url";
+
+function parseOSMLocationUrl(value: string): CustomLocation {
+  const trimmed = value.trim();
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error("Enter a valid OpenStreetMap URL.");
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  if (
+    url.protocol !== "https:" ||
+    (hostname !== "openstreetmap.org" &&
+      !hostname.endsWith(".openstreetmap.org"))
+  ) {
+    throw new Error("Use an https://openstreetmap.org location URL.");
+  }
+
+  let latitudeText = url.searchParams.get("mlat");
+  let longitudeText = url.searchParams.get("mlon");
+  if (!latitudeText || !longitudeText) {
+    const mapMatch = decodeURIComponent(url.hash).match(
+      /(?:^#|[&#])map=\d+(?:\.\d+)?\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)(?:$|&)/,
+    );
+    latitudeText = mapMatch?.[1] ?? null;
+    longitudeText = mapMatch?.[2] ?? null;
+  }
+
+  if (!latitudeText || !longitudeText) {
+    throw new Error(
+      "Use an OpenStreetMap share URL containing #map=zoom/latitude/longitude.",
+    );
+  }
+
+  const latitude = Number(latitudeText);
+  const longitude = Number(longitudeText);
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    throw new Error(
+      "Use an OpenStreetMap share URL containing #map=zoom/latitude/longitude.",
+    );
+  }
+
+  return { url: trimmed, latitude, longitude };
+}
+
+function storedCustomLocation(): CustomLocation | null {
+  const storedUrl = localStorage.getItem(CUSTOM_LOCATION_KEY);
+  if (!storedUrl) {
+    return null;
+  }
+  try {
+    return parseOSMLocationUrl(storedUrl);
+  } catch {
+    localStorage.removeItem(CUSTOM_LOCATION_KEY);
+    return null;
+  }
+}
 
 function submitTextOnEnter(
   event: ReactKeyboardEvent<HTMLTextAreaElement>,
@@ -379,7 +451,15 @@ function PresencePanel({
   onPlacesChange: (places: CurrentPlace[]) => void;
   onNearbyUsersChange: (users: NearbyUser[]) => void;
 }) {
-  const [requestNumber, setRequestNumber] = useState(0);
+  const [customLocation, setCustomLocation] = useState<CustomLocation | null>(
+    () => storedCustomLocation(),
+  );
+  const [customLocationUrl, setCustomLocationUrl] = useState(
+    customLocation?.url ?? "",
+  );
+  const [requestNumber, setRequestNumber] = useState(
+    customLocation ? 1 : 0,
+  );
   const [status, setStatus] = useState<"idle" | "requesting" | "active">(
     "idle",
   );
@@ -401,7 +481,7 @@ function PresencePanel({
     if (requestNumber === 0) {
       return;
     }
-    if (!navigator.geolocation) {
+    if (!customLocation && !navigator.geolocation) {
       setError("This browser does not support location sharing.");
       return;
     }
@@ -446,27 +526,39 @@ function PresencePanel({
       }
     }
 
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        latestCoordinates = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        };
-        void sendHeartbeat(
-          latestCoordinates.latitude,
-          latestCoordinates.longitude,
-        );
-      },
-      (locationError) => {
-        if (active) {
-          setError(
-            locationError.message || "Location permission was not granted.",
+    let watchId: number | null = null;
+    if (customLocation) {
+      latestCoordinates = {
+        latitude: customLocation.latitude,
+        longitude: customLocation.longitude,
+      };
+      void sendHeartbeat(
+        latestCoordinates.latitude,
+        latestCoordinates.longitude,
+      );
+    } else {
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          latestCoordinates = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          };
+          void sendHeartbeat(
+            latestCoordinates.latitude,
+            latestCoordinates.longitude,
           );
-          setStatus("idle");
-        }
-      },
-      { enableHighAccuracy: true, maximumAge: 15_000, timeout: 12_000 },
-    );
+        },
+        (locationError) => {
+          if (active) {
+            setError(
+              locationError.message || "Location permission was not granted.",
+            );
+            setStatus("idle");
+          }
+        },
+        { enableHighAccuracy: true, maximumAge: 15_000, timeout: 12_000 },
+      );
+    }
 
     const intervalId = window.setInterval(() => {
       if (latestCoordinates) {
@@ -488,11 +580,37 @@ function PresencePanel({
 
     return () => {
       active = false;
-      navigator.geolocation.clearWatch(watchId);
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
       window.clearInterval(intervalId);
       window.removeEventListener("pagehide", leaveOnPageExit);
     };
-  }, [requestNumber, token, onPlacesChange, onNearbyUsersChange]);
+  }, [customLocation, requestNumber, token, onPlacesChange, onNearbyUsersChange]);
+
+  function applyCustomLocation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      const parsed = parseOSMLocationUrl(customLocationUrl);
+      localStorage.setItem(CUSTOM_LOCATION_KEY, parsed.url);
+      setCustomLocation(parsed);
+      setCustomLocationUrl(parsed.url);
+      setError("");
+      setRequestNumber((value) => value + 1);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Invalid OpenStreetMap URL.",
+      );
+    }
+  }
+
+  function useBrowserLocation() {
+    localStorage.removeItem(CUSTOM_LOCATION_KEY);
+    setCustomLocation(null);
+    setCustomLocationUrl("");
+    setError("");
+    setRequestNumber((value) => value + 1);
+  }
 
   return (
     <section className="presence-panel">
@@ -516,6 +634,41 @@ function PresencePanel({
       )}
 
       {error && <p className="location-error">{error}</p>}
+      <form className="custom-location-box" onSubmit={applyCustomLocation}>
+        <label htmlFor="custom-location-url">
+          Custom location <small>Optional OSM URL</small>
+        </label>
+        <input
+          id="custom-location-url"
+          onChange={(event) => setCustomLocationUrl(event.target.value)}
+          placeholder="https://www.openstreetmap.org/#map=18/..."
+          type="url"
+          value={customLocationUrl}
+        />
+        <div className="custom-location-actions">
+          <button
+            className="button"
+            disabled={!customLocationUrl.trim()}
+            type="submit"
+          >
+            Use OSM location
+          </button>
+          {customLocation && (
+            <button
+              className="button button--secondary"
+              onClick={useBrowserLocation}
+              type="button"
+            >
+              Use browser
+            </button>
+          )}
+        </div>
+        <small>
+          {customLocation
+            ? "Custom location active. Clear it to use browser geolocation."
+            : "By default, PlacePulse uses your browser location."}
+        </small>
+      </form>
       <button
         className="button"
         disabled={status === "requesting"}
@@ -525,9 +678,11 @@ function PresencePanel({
         <Icon name="locate" size={18} />
         {status === "requesting"
           ? "Detecting place..."
-          : status === "active"
-            ? "Refresh location"
-            : "Share my location"}
+          : customLocation
+            ? "Refresh custom location"
+            : status === "active"
+              ? "Refresh location"
+              : "Share my location"}
       </button>
       <p className="location-note">
         Presence expires after 90 seconds without a location heartbeat.

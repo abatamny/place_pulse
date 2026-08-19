@@ -245,6 +245,50 @@ textarea:focus {
   line-height: 1.45;
 }
 
+.custom-location-box {
+  display: grid;
+  width: min(22rem, calc(100vw - 2rem));
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border: 1px solid rgb(23 45 39 / 13%);
+  border-radius: 0.75rem;
+  background: rgb(251 252 251 / 94%);
+  box-shadow: 0 0.5rem 1.3rem rgb(23 45 39 / 12%);
+  backdrop-filter: blur(10px);
+}
+
+.custom-location-box label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+}
+
+.custom-location-box label small,
+.custom-location-box > small {
+  color: #61766f;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.custom-location-box input {
+  padding: 0.65rem 0.7rem;
+  font-size: 0.76rem;
+}
+
+.custom-location-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem;
+}
+
+.custom-location-actions .button {
+  padding: 0.65rem 0.7rem;
+  font-size: 0.72rem;
+}
+
 .text-button {
   border: 0;
   background: transparent;
@@ -1910,7 +1954,7 @@ button:focus-visible {
   display: none;
 }
 
-.map-location-control .button {
+.map-location-control .presence-panel > .button {
   min-height: 2.7rem;
   border: 1px solid rgb(23 45 39 / 13%);
   background: rgb(251 252 251 / 92%);
@@ -1919,7 +1963,7 @@ button:focus-visible {
   backdrop-filter: blur(10px);
 }
 
-.map-location-control .button:hover:not(:disabled) {
+.map-location-control .presence-panel > .button:hover:not(:disabled) {
   background: #fff;
 }
 
