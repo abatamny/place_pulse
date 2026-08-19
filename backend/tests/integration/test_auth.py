@@ -8,6 +8,9 @@ from app.models import User
 from app.sms import SMSDeliveryError
 
 
+pytestmark = pytest.mark.integration
+
+
 def register_and_verify(
     client: TestClient,
     phone: str = "0500000001",
@@ -146,6 +149,7 @@ def test_duplicate_phone_number_is_rejected(client: TestClient) -> None:
     assert duplicate.status_code == 409
 
 
+@pytest.mark.security
 def test_wrong_password_is_rejected(client: TestClient) -> None:
     register_and_verify(client)
 
@@ -156,6 +160,7 @@ def test_wrong_password_is_rejected(client: TestClient) -> None:
     assert response.status_code == 401
 
 
+@pytest.mark.security
 def test_unauthenticated_user_cannot_access_protected_endpoint(
     client: TestClient,
 ) -> None:

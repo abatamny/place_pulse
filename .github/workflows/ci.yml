@@ -10,9 +10,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Run isolated unit tests without database services
+        run: docker compose run --build --rm --no-deps backend pytest -q -m unit
       - name: Start test database
         run: docker compose up -d db
-      - name: Run backend tests
+      - name: Run integration tests
+        run: docker compose run --rm backend pytest -q -m integration
+      - name: Run security tests
+        run: docker compose run --rm backend pytest -q -m security
+      - name: Run system tests
+        run: docker compose run --rm backend pytest -q -m system
+      - name: Run stress tests
+        run: docker compose run --rm backend pytest -q -m stress
+      - name: Run complete backend suite
         run: docker compose run --build --rm backend pytest -q
       - name: Stop test services
         if: always()

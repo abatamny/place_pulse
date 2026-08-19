@@ -3,7 +3,7 @@ import json
 from collections.abc import Sequence
 
 import httpx
-from sqlalchemy import select
+import pytest
 
 from app.ai import (
     ImageModerationInput,
@@ -17,10 +17,9 @@ from app.ai import (
     route_before_publication,
     route_media_before_publication,
 )
-from app.database import SessionLocal
-from app.jobs import COMPLETED, FAILED, enqueue_text_moderation
-from app.models import AIJob
-from app.worker import process_next_job
+
+
+pytestmark = pytest.mark.unit
 
 
 class FakeAIAdapter:
@@ -180,6 +179,7 @@ def test_openai_compatible_model_moderates_image_frames() -> None:
     )
 
 
+@pytest.mark.security
 def test_openai_compatible_invalid_media_output_fails_closed() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -299,6 +299,7 @@ def test_prepublication_moderation_returns_structured_decision() -> None:
     assert adapter.moderation_calls == 1
 
 
+@pytest.mark.security
 def test_prompt_injection_is_rejected_without_calling_provider() -> None:
     adapter = FakeAIAdapter()
 
@@ -313,6 +314,7 @@ def test_prompt_injection_is_rejected_without_calling_provider() -> None:
     assert adapter.moderation_calls == 0
 
 
+@pytest.mark.security
 def test_obfuscated_and_broader_jailbreak_language_is_rejected() -> None:
     adapter = FakeAIAdapter()
 
@@ -328,6 +330,7 @@ def test_obfuscated_and_broader_jailbreak_language_is_rejected() -> None:
     assert adapter.moderation_calls == 0
 
 
+@pytest.mark.security
 def test_timeout_and_invalid_output_fail_closed() -> None:
     slow_adapter = FakeAIAdapter(delay=0.05)
     timed_out = asyncio.run(
@@ -388,6 +391,7 @@ def test_nested_place_routing_accepts_only_known_place_ids() -> None:
     assert rejected is None
 
 
+@pytest.mark.security
 def test_routing_rejects_untrusted_place_facts_and_invalid_hierarchy() -> None:
     unsafe_adapter = FakeAIAdapter()
     unsafe_place = PlaceRouteOption(
@@ -419,6 +423,7 @@ def test_routing_rejects_untrusted_place_facts_and_invalid_hierarchy() -> None:
     assert invalid_parent_adapter.routing_calls == 0
 
 
+@pytest.mark.security
 def test_routing_rejects_a_known_id_that_contradicts_named_place_facts() -> None:
     places = [
         PlaceRouteOption(place_id=1, name="Course Campus"),
@@ -447,6 +452,7 @@ def test_routing_rejects_a_known_id_that_contradicts_named_place_facts() -> None
     assert contradictory.routing_calls == 1
 
 
+@pytest.mark.security
 def test_routing_rejects_instruction_like_model_reasons() -> None:
     places = [PlaceRouteOption(place_id=1, name="Course Campus")]
     unsafe_output = FakeAIAdapter(
@@ -463,6 +469,7 @@ def test_routing_rejects_instruction_like_model_reasons() -> None:
     assert result is None
 
 
+@pytest.mark.security
 def test_media_routing_requires_allowed_id_and_high_confidence() -> None:
     places = [
         PlaceRouteOption(place_id=1, name="Campus"),
@@ -505,36 +512,3 @@ def test_media_routing_requires_allowed_id_and_high_confidence() -> None:
 
     assert uncertain is None
     assert invented is None
-
-
-def test_worker_stores_background_moderation_result() -> None:
-    job_id = enqueue_text_moderation("A calm post-publication message")
-
-    assert asyncio.run(process_next_job(FakeAIAdapter())) is True
-
-    with SessionLocal() as db:
-        job = db.get(AIJob, job_id)
-        assert job is not None
-        assert job.status == COMPLETED
-        assert job.attempts == 1
-        assert job.result == {
-            "approved": True,
-            "reason": "Message is suitable for the place feed",
-            "categories": [],
-        }
-        assert job.error is None
-        assert job.completed_at is not None
-
-
-def test_worker_records_invalid_model_output_as_failed() -> None:
-    job_id = enqueue_text_moderation("This result will be malformed")
-    adapter = FakeAIAdapter(moderation={"unexpected": "output"})
-
-    assert asyncio.run(process_next_job(adapter)) is True
-
-    with SessionLocal() as db:
-        job = db.scalar(select(AIJob).where(AIJob.id == job_id))
-        assert job is not None
-        assert job.status == FAILED
-        assert job.result is None
-        assert job.error == "AI moderation returned invalid output"

@@ -1,4 +1,9 @@
+import pytest
+
 from app.jobs import claim_next_job, complete_job, enqueue_text_moderation
+
+
+pytestmark = pytest.mark.integration
 
 
 def test_jobs_rotate_between_users_instead_of_following_global_fifo() -> None:

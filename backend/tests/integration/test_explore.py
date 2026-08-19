@@ -38,6 +38,9 @@ from app.models import (
 from app.worker import process_next_job
 
 
+pytestmark = pytest.mark.integration
+
+
 @dataclass(frozen=True)
 class SessionIdentity:
     user_id: int
@@ -268,6 +271,7 @@ def test_uploaded_activity_worker_creates_memory_that_outlives_digs(
     assert media.headers["content-type"] == "image/jpeg"
 
 
+@pytest.mark.security
 def test_nonparticipant_needs_current_presence_to_access_memory(
     client: TestClient,
 ) -> None:
@@ -317,6 +321,7 @@ def test_nonparticipant_needs_current_presence_to_access_memory(
     )
 
 
+@pytest.mark.security
 def test_feed_filters_memories_to_the_selected_scope(client: TestClient) -> None:
     campus_id = create_place("Selected Campus", 4008)
     building_id = create_place("Selected Building", 4009, campus_id)
@@ -457,6 +462,7 @@ def test_moment_uses_deepest_place_shared_by_dig_attachment_paths(
         assert memory.place_id == building_id
 
 
+@pytest.mark.security
 def test_local_dig_scopes_do_not_create_a_broader_moment(
     client: TestClient,
     fake_media_ai,

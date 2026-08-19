@@ -171,13 +171,22 @@ docker compose run --build --rm backend pytest -q
 
 The tests automatically create and use a separate PostGIS-enabled `placepulse_test` database. OpenStreetMap is replaced with a deterministic fake resolver, so tests do not depend on live network services or modify users created through the application.
 
-The final suites can also be run separately:
+The organized suites can also be run separately. Unit tests use no database;
+the remaining backend categories use the isolated test database where needed:
 
 ```sh
+docker compose run --build --rm --no-deps backend pytest -q -m unit
+docker compose run --build --rm backend pytest -q -m integration
 docker compose run --build --rm backend pytest -q -m system
 docker compose run --build --rm backend pytest -q -m security
 docker compose run --build --rm backend pytest -q -m stress
 ```
+
+Tests live under matching `tests/unit`, `tests/integration`, `tests/security`,
+`tests/system`, and `tests/stress` directories. Security is also a cross-cutting
+marker on relevant unit and integration tests. Browser-driven Playwright E2E
+coverage is intentionally postponed; the current `system` suite is an API-level
+cross-feature journey.
 
 See the [feature-to-test matrix](docs/feature-test-matrix.md) for the complete mapping of features to unit, integration, system, security, and stress coverage.
 

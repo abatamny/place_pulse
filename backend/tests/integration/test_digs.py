@@ -23,6 +23,9 @@ from app.main import app
 from app.models import AuthSession, Dig, Place, PlaceMembership, Presence, User
 
 
+pytestmark = pytest.mark.integration
+
+
 @dataclass(frozen=True)
 class SessionIdentity:
     user_id: int
@@ -226,6 +229,7 @@ def test_short_video_is_validated_and_moderated_as_frames(
     assert fake_media_ai.sample_counts == [3]
 
 
+@pytest.mark.security
 def test_rejected_media_is_neither_saved_nor_listed(
     client: TestClient, fake_media_ai: FakeMediaAI
 ) -> None:
@@ -250,6 +254,7 @@ def test_rejected_media_is_neither_saved_nor_listed(
     assert feed.json() == {"digs": []}
 
 
+@pytest.mark.security
 def test_moderation_failure_fails_closed_without_storing_media(
     client: TestClient, fake_media_ai: FakeMediaAI
 ) -> None:
@@ -268,6 +273,7 @@ def test_moderation_failure_fails_closed_without_storing_media(
         assert db.scalar(select(func.count()).select_from(Dig)) == 0
 
 
+@pytest.mark.security
 def test_wrong_type_filename_and_oversized_uploads_are_rejected(
     client: TestClient, fake_media_ai: FakeMediaAI
 ) -> None:
@@ -304,6 +310,7 @@ def test_wrong_type_filename_and_oversized_uploads_are_rejected(
     assert fake_media_ai.sample_counts == []
 
 
+@pytest.mark.security
 def test_upload_requires_authentication(
     client: TestClient, fake_media_ai: FakeMediaAI
 ) -> None:
@@ -318,6 +325,7 @@ def test_upload_requires_authentication(
     assert fake_media_ai.sample_counts == []
 
 
+@pytest.mark.security
 def test_upload_rejects_a_selected_scope_without_current_presence(
     client: TestClient, fake_media_ai: FakeMediaAI
 ) -> None:

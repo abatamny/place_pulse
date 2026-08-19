@@ -12,6 +12,9 @@ from app.database import SessionLocal
 from app.models import AuthSession, DirectMessage, User
 
 
+pytestmark = pytest.mark.integration
+
+
 @dataclass(frozen=True)
 class SessionIdentity:
     user_id: int
@@ -57,6 +60,7 @@ def send_message(
     )
 
 
+@pytest.mark.security
 def test_messages_are_private_saved_and_marked_read(client: TestClient) -> None:
     alice = create_user("0500006001", "Alice")
     bob = create_user("0500006002", "Bob")
@@ -129,6 +133,7 @@ def test_recipient_receives_live_notification(client: TestClient) -> None:
     assert notification["message"]["text"] == "This arrived live"
 
 
+@pytest.mark.security
 def test_dm_authentication_recipient_and_input_are_validated(
     client: TestClient,
 ) -> None:

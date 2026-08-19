@@ -29,6 +29,9 @@ from app.models import (
 from app.worker import process_next_job
 
 
+pytestmark = pytest.mark.integration
+
+
 @dataclass(frozen=True)
 class SessionIdentity:
     user_id: int
@@ -169,6 +172,7 @@ def test_same_place_users_receive_live_message(
     assert received["message"]["place_display_name"] == "Course Library, Haifa"
 
 
+@pytest.mark.security
 def test_cross_place_rooms_are_isolated(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:
@@ -191,6 +195,7 @@ def test_cross_place_rooms_are_isolated(
     assert second_received["message"]["place_id"] == second_place
 
 
+@pytest.mark.security
 def test_selected_knock_scope_requires_current_presence(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:
@@ -217,6 +222,7 @@ def test_selected_knock_scope_requires_current_presence(
         assert db.scalar(select(func.count()).select_from(KnockMessage)) == 0
 
 
+@pytest.mark.security
 def test_invalid_websocket_token_is_rejected(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:
@@ -226,6 +232,7 @@ def test_invalid_websocket_token_is_rejected(
     assert disconnected.value.code == 4401
 
 
+@pytest.mark.security
 def test_visitor_moderation_rejection_is_not_published(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:
@@ -317,6 +324,7 @@ def test_belong_message_is_immediate_and_queued_for_background_check(
     assert history.json()["messages"] == []
 
 
+@pytest.mark.security
 def test_nested_message_is_sent_only_to_selected_place_scope(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:

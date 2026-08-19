@@ -13,6 +13,9 @@ from app.sms import (
 )
 
 
+pytestmark = pytest.mark.unit
+
+
 def test_no_configured_sms_provider_uses_demo_mode() -> None:
     config = SimpleNamespace(sms_provider="")
 

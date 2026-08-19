@@ -27,6 +27,9 @@ from app.models import (
 )
 
 
+pytestmark = pytest.mark.integration
+
+
 @dataclass(frozen=True)
 class SessionIdentity:
     user_id: int
@@ -158,6 +161,7 @@ def create_post(
     )
 
 
+@pytest.mark.security
 def test_anonymous_post_hides_identity_and_personal_area_keeps_totals(
     client: TestClient,
     fake_forum_ai: FakeForumAI,
@@ -265,6 +269,7 @@ def test_comments_and_votes_are_saved_and_can_be_changed(
         assert db.scalar(select(func.count()).select_from(ForumVote)) == 0
 
 
+@pytest.mark.security
 def test_presence_and_moderation_are_required_before_publication(
     client: TestClient,
     fake_forum_ai: FakeForumAI,
@@ -344,6 +349,7 @@ def test_parent_forum_scope_records_origin_and_allows_sibling_place_user(
     ]
 
 
+@pytest.mark.security
 def test_location_feed_uses_only_the_selected_scope_and_excludes_others(
     client: TestClient,
     fake_forum_ai: FakeForumAI,
