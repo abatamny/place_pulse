@@ -905,7 +905,6 @@ function DigPanel({
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [digs, setDigs] = useState<Dig[]>([]);
-  const [selectedPlaceId, setSelectedPlaceId] = useState("");
   const [refreshNumber, setRefreshNumber] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -915,16 +914,6 @@ function DigPanel({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const placeKey = places.map((place) => place.id).join(",");
-
-  useEffect(() => {
-    if (!places.length) {
-      setSelectedPlaceId("");
-      return;
-    }
-    if (!places.some((place) => String(place.id) === selectedPlaceId)) {
-      setSelectedPlaceId(String(places[places.length - 1].id));
-    }
-  }, [placeKey, places, selectedPlaceId]);
 
   useEffect(() => {
     if (!places.length) {
@@ -970,8 +959,8 @@ function DigPanel({
   async function uploadDig(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const selectedFile = inputRef.current?.files?.[0];
-    if (!selectedFile || !selectedPlaceId) {
-      setError("Choose a place and a media file.");
+    if (!selectedFile) {
+      setError("Choose a media file.");
       return;
     }
     if (selectedFile.size > 10 * 1024 * 1024) {
@@ -982,21 +971,18 @@ function DigPanel({
     setUploading(true);
     setError("");
     setNotice("");
-    const selectedPlace = places.find(
-      (place) => String(place.id) === selectedPlaceId,
-    );
+    const originPlace = places[places.length - 1];
     const previewUrl = URL.createObjectURL(selectedFile);
     setPendingDig({
       id: -Date.now(),
       nickname: "You",
-      place_name: selectedPlace?.name ?? "Nearby place",
-      place_display_name: selectedPlace?.display_name ?? "Nearby place",
+      place_name: originPlace?.name ?? "Nearby place",
+      place_display_name: originPlace?.display_name ?? "Nearby place",
       media_type: selectedFile.type.startsWith("video/") ? "video" : "image",
       preview_url: previewUrl,
     });
     setComposerOpen(false);
     const form = new FormData();
-    form.set("place_id", selectedPlaceId);
     form.set("file", selectedFile);
     try {
       const published = await apiRequest<Dig>(
@@ -1007,7 +993,9 @@ function DigPanel({
       if (inputRef.current) {
         inputRef.current.value = "";
       }
-      setNotice("DIG published. It will disappear after 24 hours.");
+      setNotice(
+        `DIG shared with ${published.place_display_name}. It will disappear after 24 hours.`,
+      );
       setDigs((current) => [published, ...current]);
       setRefreshNumber((value) => value + 1);
     } catch (caught) {
@@ -1127,18 +1115,9 @@ function DigPanel({
             </button>
           </header>
           <form className="dig-composer" onSubmit={uploadDig}>
-            <label>
-              Share with
-              <select
-                onChange={(event) => setSelectedPlaceId(event.target.value)}
-                required
-                value={selectedPlaceId}
-              >
-                {places.map((place) => (
-                  <option key={place.id} value={place.id}>{place.display_name}</option>
-                ))}
-              </select>
-            </label>
+            <small>
+              The audience is chosen automatically from your current place hierarchy.
+            </small>
             <label className="dig-file-field">
               Image or short video
               <span className="dig-file-picker">
@@ -1785,9 +1764,6 @@ function ForumPanel({
 
   async function submitPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedPlaceId) {
-      return;
-    }
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     const title = String(form.get("title") || "");
@@ -1797,13 +1773,14 @@ function ForumPanel({
       (place) => String(place.id) === selectedPlaceId,
     );
     const originPlace = places[places.length - 1] ?? selectedPlace;
+    const pendingPlace = selectedPlace ?? originPlace;
     const pendingId = -Date.now();
     const pendingPost: PendingForumPost = {
       id: pendingId,
-      place_id: Number(selectedPlaceId),
-      place_name: selectedPlace?.name ?? "Nearby place",
-      place_display_name: selectedPlace?.display_name ?? "Nearby place",
-      origin_place_id: originPlace?.id ?? Number(selectedPlaceId),
+      place_id: pendingPlace?.id ?? 0,
+      place_name: pendingPlace?.name ?? "Nearby place",
+      place_display_name: pendingPlace?.display_name ?? "Nearby place",
+      origin_place_id: originPlace?.id ?? pendingPlace?.id ?? 0,
       origin_place_name: originPlace?.name ?? "Nearby place",
       origin_place_display_name: originPlace?.display_name ?? "Nearby place",
       user_id: isAnonymous ? null : user.id,
@@ -1831,7 +1808,6 @@ function ForumPanel({
         {
           method: "POST",
           body: JSON.stringify({
-            place_id: Number(selectedPlaceId),
             title,
             body,
             is_anonymous: isAnonymous,
@@ -1842,7 +1818,8 @@ function ForumPanel({
       formElement.reset();
       setPendingPosts((current) => current.filter((post) => post.id !== pendingId));
       setPosts((current) => [published, ...current.filter((post) => post.id !== published.id)]);
-      setNotice("Forum post published.");
+      setSelectedPlaceId(String(published.place_id));
+      setNotice(`Forum post shared with ${published.place_display_name}.`);
       setRefreshNumber((value) => value + 1);
     } catch (caught) {
       setPendingPosts((current) => current.filter((post) => post.id !== pendingId));
@@ -1931,17 +1908,9 @@ function ForumPanel({
             </button>
           </header>
           <form className="forum-composer" onSubmit={submitPost}>
-            <label>
-              Forum audience
-              <select
-                onChange={(event) => setSelectedPlaceId(event.target.value)}
-                value={selectedPlaceId}
-              >
-                {places.map((place) => (
-                  <option key={place.id} value={place.id}>{place.display_name}</option>
-                ))}
-              </select>
-            </label>
+            <small>
+              The audience is chosen automatically from your current place hierarchy.
+            </small>
             <label>
               Title
               <input maxLength={120} name="title" required />
