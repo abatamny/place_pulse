@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.ai import (
     ImageModerationInput,
+    MediaRoutingDecision,
     ModerationDecision,
     OpenAIAdapter,
     PlaceRouteOption,
@@ -14,6 +15,7 @@ from app.ai import (
     moderate_media_before_publication,
     moderate_before_publication,
     route_before_publication,
+    route_media_before_publication,
 )
 from app.database import SessionLocal
 from app.jobs import COMPLETED, FAILED, enqueue_text_moderation
@@ -27,6 +29,7 @@ class FakeAIAdapter:
         *,
         moderation: object | None = None,
         routing: object | None = None,
+        media_routing: object | None = None,
         delay: float = 0,
     ) -> None:
         self.moderation = moderation or ModerationDecision(
@@ -37,6 +40,11 @@ class FakeAIAdapter:
         self.routing = routing or RoutingDecision(
             place_id=2,
             reason="The building is the most specific matching place",
+        )
+        self.media_routing = media_routing or MediaRoutingDecision(
+            place_id=2,
+            reason="The scene clearly serves the building",
+            confidence=0.95,
         )
         self.delay = delay
         self.moderation_calls = 0
@@ -55,6 +63,21 @@ class FakeAIAdapter:
         if self.delay:
             await asyncio.sleep(self.delay)
         return self.routing
+
+    async def route_forum_post(
+        self, text: str, places: Sequence[PlaceRouteOption]
+    ) -> object:
+        return await self.route_message(text, places)
+
+    async def route_media(
+        self,
+        images: Sequence[ImageModerationInput],
+        places: Sequence[PlaceRouteOption],
+    ) -> object:
+        self.routing_calls += 1
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        return self.media_routing
 
 
 def provider_adapter(
@@ -173,6 +196,56 @@ def test_openai_compatible_invalid_media_output_fails_closed() -> None:
 
     assert decision.approved is False
     assert decision.categories == ["ai_failure"]
+
+
+def test_responses_media_routing_sends_images_with_structured_output() -> None:
+    observed_body: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed_body.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        "place_id": 2,
+                                        "reason": "The scene serves the building",
+                                        "confidence": 0.92,
+                                    }
+                                ),
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+    adapter = provider_adapter(
+        handler,
+        api_format="responses",
+        media_moderation_mode="moderations",
+    )
+    decision = asyncio.run(
+        adapter.route_media(
+            [ImageModerationInput(content_type="image/jpeg", data=b"frame")],
+            [
+                PlaceRouteOption(place_id=1, name="Campus"),
+                PlaceRouteOption(place_id=2, name="Building", parent_place_id=1),
+            ],
+        )
+    )
+
+    assert decision.place_id == 2
+    assert decision.confidence == 0.92
+    content = observed_body["input"][1]["content"]
+    assert [item["type"] for item in content] == ["input_text", "input_image"]
+    assert observed_body["text"]["format"]["type"] == "json_schema"
 
 
 def test_native_openai_responses_format_remains_supported() -> None:
@@ -388,6 +461,50 @@ def test_routing_rejects_instruction_like_model_reasons() -> None:
     )
 
     assert result is None
+
+
+def test_media_routing_requires_allowed_id_and_high_confidence() -> None:
+    places = [
+        PlaceRouteOption(place_id=1, name="Campus"),
+        PlaceRouteOption(place_id=2, name="Building", parent_place_id=1),
+    ]
+    images = [ImageModerationInput(content_type="image/jpeg", data=b"frame")]
+
+    accepted = asyncio.run(
+        route_media_before_publication(FakeAIAdapter(), images, places)
+    )
+    assert accepted is not None
+    assert accepted.place_id == 2
+
+    uncertain = asyncio.run(
+        route_media_before_publication(
+            FakeAIAdapter(
+                media_routing={
+                    "place_id": 1,
+                    "reason": "The scene might be campus-wide",
+                    "confidence": 0.55,
+                }
+            ),
+            images,
+            places,
+        )
+    )
+    invented = asyncio.run(
+        route_media_before_publication(
+            FakeAIAdapter(
+                media_routing={
+                    "place_id": 999,
+                    "reason": "Invented scope",
+                    "confidence": 0.99,
+                }
+            ),
+            images,
+            places,
+        )
+    )
+
+    assert uncertain is None
+    assert invented is None
 
 
 def test_worker_stores_background_moderation_result() -> None:

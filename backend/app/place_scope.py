@@ -15,6 +15,12 @@ class ContentPlaceScope:
     scope: Place
 
 
+@dataclass(frozen=True)
+class CurrentContentPlaces:
+    origin: Place
+    scopes: tuple[Place, ...]
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -63,6 +69,40 @@ def active_place_ids(
             )
         )
     )
+
+
+def current_content_places(
+    db: Session,
+    user_id: int,
+    now: datetime | None = None,
+) -> CurrentContentPlaces:
+    """Return the deepest current origin and its active ancestor scopes."""
+    current_ids = active_place_ids(db, user_id, now)
+    if not current_ids:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Share your location before publishing content",
+        )
+
+    candidates: list[tuple[int, int, Place, list[Place]]] = []
+    for current_place_id in current_ids:
+        path = place_path(db, current_place_id)
+        if path:
+            candidates.append((len(path), path[0].id, path[0], path))
+
+    if not candidates:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Share your location before publishing content",
+        )
+
+    _, _, origin, path = max(
+        candidates, key=lambda candidate: (candidate[0], candidate[1])
+    )
+    scopes = tuple(
+        place for place in reversed(path) if place.id in current_ids
+    )
+    return CurrentContentPlaces(origin=origin, scopes=scopes)
 
 
 def resolve_content_place_scope(
