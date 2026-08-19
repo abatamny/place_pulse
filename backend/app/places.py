@@ -1,10 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from geoalchemy2 import Geography
 from geoalchemy2.shape import from_shape
 from shapely.geometry import shape
-from sqlalchemy import and_, cast, func, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import AuthContext, require_auth
@@ -32,31 +31,6 @@ class NoPlaceFoundError(Exception):
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def find_local_places(
-    db: Session, latitude: float, longitude: float
-) -> list[Place]:
-    point = func.ST_SetSRID(func.ST_MakePoint(longitude, latitude), 4326)
-    point_geography = cast(point, Geography(srid=4326))
-    center = func.ST_SetSRID(
-        func.ST_MakePoint(Place.center_lon, Place.center_lat), 4326
-    )
-
-    statement = select(Place).where(
-        or_(
-            and_(Place.boundary.is_not(None), func.ST_Covers(Place.boundary, point)),
-            and_(
-                Place.boundary.is_(None),
-                func.ST_DWithin(
-                    cast(center, Geography(srid=4326)),
-                    point_geography,
-                    Place.radius_m,
-                ),
-            ),
-        )
-    )
-    return order_places(list(db.scalars(statement)))
 
 
 def geometry_from_geojson(geojson: dict | None):
@@ -179,12 +153,10 @@ def update_presence(
     now = now or utc_now()
     expire_stale_presences(db, now)
 
-    places = find_local_places(db, latitude, longitude)
-    if not places:
-        resolved = resolver.resolve(latitude, longitude)
-        if not resolved:
-            raise NoPlaceFoundError
-        places = save_resolved_places(db, resolved)
+    resolved = resolver.resolve(latitude, longitude)
+    if not resolved:
+        raise NoPlaceFoundError
+    places = save_resolved_places(db, resolved)
 
     current_ids = {place.id for place in places}
     existing = list(db.scalars(select(Presence).where(Presence.user_id == user_id)))

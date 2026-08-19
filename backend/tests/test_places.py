@@ -15,11 +15,12 @@ from app.places import PRESENCE_TTL, expire_stale_presences
 class FakePlaceResolver:
     def __init__(self):
         self.calls = 0
+        self.include_building = True
 
     def resolve(self, latitude: float, longitude: float) -> list[ResolvedPlace]:
         self.calls += 1
         campus_key = ("way", 1001)
-        return [
+        places = [
             ResolvedPlace(
                 osm_type="way",
                 osm_id=1001,
@@ -28,16 +29,20 @@ class FakePlaceResolver:
                 center_lon=longitude,
                 boundary_geojson=polygon(34.99, 31.99, 35.01, 32.01),
             ),
-            ResolvedPlace(
-                osm_type="way",
-                osm_id=1002,
-                name="Engineering Building",
-                center_lat=latitude,
-                center_lon=longitude,
-                boundary_geojson=polygon(34.999, 31.999, 35.001, 32.001),
-                parent_key=campus_key,
-            ),
         ]
+        if self.include_building:
+            places.append(
+                ResolvedPlace(
+                    osm_type="way",
+                    osm_id=1002,
+                    name="Engineering Building",
+                    center_lat=latitude,
+                    center_lon=longitude,
+                    boundary_geojson=polygon(34.999, 31.999, 35.001, 32.001),
+                    parent_key=campus_key,
+                )
+            )
+        return places
 
 
 def polygon(min_lon: float, min_lat: float, max_lon: float, max_lat: float):
@@ -91,7 +96,7 @@ def heartbeat(client: TestClient, headers: dict[str, str]):
     )
 
 
-def test_coordinates_create_nested_places_and_reuse_local_boundaries(
+def test_coordinates_resolve_each_heartbeat_and_upsert_places(
     client: TestClient, fake_resolver: FakePlaceResolver
 ) -> None:
     headers = authenticated_headers(client)
@@ -108,12 +113,43 @@ def test_coordinates_create_nested_places_and_reuse_local_boundaries(
 
     second = heartbeat(client, headers)
     assert second.status_code == 200
-    assert fake_resolver.calls == 1
+    assert fake_resolver.calls == 2
+    assert [place["id"] for place in second.json()["places"]] == [
+        campus["id"],
+        building["id"],
+    ]
 
     with SessionLocal() as db:
         places = list(db.scalars(select(Place).order_by(Place.id)))
         assert len(places) == 2
         assert places[1].parent_place_id == places[0].id
+
+
+def test_later_heartbeat_discovers_inner_place_inside_stored_broad_place(
+    client: TestClient, fake_resolver: FakePlaceResolver
+) -> None:
+    headers = authenticated_headers(client)
+    fake_resolver.include_building = False
+
+    first = heartbeat(client, headers)
+    assert first.status_code == 200
+    assert [place["name"] for place in first.json()["places"]] == ["Course Campus"]
+    campus_id = first.json()["places"][0]["id"]
+
+    fake_resolver.include_building = True
+    second = heartbeat(client, headers)
+    assert second.status_code == 200
+    assert [place["name"] for place in second.json()["places"]] == [
+        "Course Campus",
+        "Engineering Building",
+    ]
+    campus, building = second.json()["places"]
+    assert campus["id"] == campus_id
+    assert building["parent_place_id"] == campus_id
+    assert fake_resolver.calls == 2
+
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Place)) == 2
 
 
 def test_stale_presence_records_completed_visits(
@@ -154,7 +190,7 @@ def test_three_completed_visits_promote_user_to_belong(
 
     current = heartbeat(client, headers)
     assert current.status_code == 200
-    assert fake_resolver.calls == 1
+    assert fake_resolver.calls == 4
     assert all(place["rank"] == "BELONG" for place in current.json()["places"])
     assert all(
         place["completed_visits"] == 3 for place in current.json()["places"]
@@ -164,4 +200,3 @@ def test_three_completed_visits_promote_user_to_belong(
         assert db.scalar(select(func.count()).select_from(Visit)) == 6
         memberships = list(db.scalars(select(PlaceMembership)))
         assert all(membership.rank == "BELONG" for membership in memberships)
-
