@@ -1,6 +1,7 @@
 .env
 .env.azure
 *.azure.env
+.azure/
 .idea/
 .vscode/
 __pycache__/
