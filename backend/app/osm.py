@@ -6,6 +6,11 @@ import httpx
 from app.config import settings
 
 
+# This OSM multipolygon is a broad search/import coverage area rather than a
+# place where PlacePulse interactions should be scoped.
+EXCLUDED_SCOPE_KEYS = {("relation", 6195356)}
+
+
 class PlaceResolutionError(Exception):
     pass
 
@@ -79,6 +84,8 @@ class OSMPlaceResolver:
             osm_type = "relation" if element.get("type") == "relation" else "way"
             osm_id = int(element["id"])
             key = (osm_type, osm_id)
+            if key in EXCLUDED_SCOPE_KEYS:
+                continue
             if key in seen:
                 continue
             seen.add(key)

@@ -51,6 +51,56 @@ def test_osm_scope_classification_preserves_useful_unknown_features() -> None:
     assert classify({"name": "Locally useful enclosure"}) == "OTHER"
 
 
+def test_broad_israel_and_palestinian_territories_area_is_excluded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {
+                "elements": [
+                    {
+                        "type": "relation",
+                        "id": 6195356,
+                        "tags": {
+                            "name": "Israel and The Palestinian Territories",
+                            "type": "multipolygon",
+                        },
+                    },
+                    {
+                        "type": "way",
+                        "id": 123,
+                        "tags": {"name": "Locally useful enclosure"},
+                        "bounds": {
+                            "minlat": 31.99,
+                            "minlon": 34.99,
+                            "maxlat": 32.01,
+                            "maxlon": 35.01,
+                        },
+                    },
+                ]
+            }
+
+    class FakeClient:
+        def __enter__(self) -> "FakeClient":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+        def post(self, *args: object, **kwargs: object) -> FakeResponse:
+            return FakeResponse()
+
+    resolver = OSMPlaceResolver()
+    monkeypatch.setattr(resolver, "_client", lambda: FakeClient())
+
+    resolved = resolver.resolve(32.0, 35.0)
+
+    assert [(place.osm_type, place.osm_id) for place in resolved] == [("way", 123)]
+
+
 def test_osm_query_uses_configured_timeout_and_containment() -> None:
     query = OSMPlaceResolver._overpass_query(32.0, 35.0)
 
