@@ -1862,16 +1862,6 @@ button:focus-visible {
   pointer-events: auto;
 }
 
-.map-dig-toolbar > span {
-  padding: 0.32rem 0.5rem;
-  border-radius: 999px;
-  background: rgb(251 252 251 / 84%);
-  color: var(--muted);
-  font-size: 0.68rem;
-  font-weight: 750;
-  backdrop-filter: blur(8px);
-}
-
 .map-dig-add,
 .dig-map-empty {
   display: flex;
@@ -2445,7 +2435,6 @@ button:focus-visible {
     max-width: calc(100% - 7rem);
   }
 
-  .map-dig-toolbar > span,
   .dig-marker-name {
     display: none;
   }

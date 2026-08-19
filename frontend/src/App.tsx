@@ -1044,7 +1044,6 @@ function DigPanel({
           <Icon name="camera" size={18} />
           {uploading ? "Checking DIG..." : "Add DIG"}
         </button>
-        <span>{digs.length} live</span>
       </div>
 
       {digs.length === 0 && !composerOpen && (
