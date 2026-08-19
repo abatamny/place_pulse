@@ -133,7 +133,7 @@ Every author whose DIG was selected is a participant and can revisit that memory
 
 ## Place forum and personal area
 
-Open **Forum** after sharing your location to read persistent text posts for any active place layer. When creating a post, the backend records the deepest current place as its origin and uses the text to choose an audience only from that place or its active ancestors. Posts may be anonymous, and present users can add comments or change an upvote/downvote. Post and comment text is moderated before publication and fails closed if the configured AI provider is unavailable. Forum media is intentionally omitted to keep this optional course feature small.
+Open **Forum** after sharing your location to see one combined feed of persistent posts from every active place layer you can access. When creating a post, the backend records the deepest current place as its origin and uses the text to choose an audience only from that place or its active ancestors. Posts may be anonymous, and present users can add comments or change an upvote/downvote. Post and comment text is moderated before publication and fails closed if the configured AI provider is unavailable. Forum media is intentionally omitted to keep this optional course feature small.
 
 The **My posts** view remains available after leaving a place. It lists the signed-in user's posts and totals their received likes, dislikes, and net score. Anonymous posts never reveal their author in public API responses.
 

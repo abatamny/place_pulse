@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -22,7 +22,7 @@ from app.models import (
     User,
 )
 from app.place_labels import place_display_name
-from app.place_scope import current_content_places
+from app.place_scope import active_place_ids, current_content_places
 from app.places import PRESENCE_TTL
 from app.rate_limit import AuthRateLimiter
 from app.schemas import (
@@ -178,16 +178,17 @@ def post_response(
 
 @forum_router.get("", response_model=ForumFeedResponse)
 def forum_feed(
-    place_id: int = Query(gt=0),
     auth: AuthContext = Depends(require_auth),
 ) -> ForumFeedResponse:
     with SessionLocal() as db:
-        require_place_access(db, auth.user.id, place_id)
+        current_place_ids = active_place_ids(db, auth.user.id)
+        if not current_place_ids:
+            return ForumFeedResponse(posts=[])
         posts = list(
             db.scalars(
                 select(ForumPost)
                 .where(
-                    ForumPost.place_id == place_id,
+                    ForumPost.place_id.in_(current_place_ids),
                     ForumPost.moderation_status == "approved",
                 )
                 .order_by(ForumPost.created_at.desc(), ForumPost.id.desc())

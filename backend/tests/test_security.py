@@ -29,7 +29,7 @@ pytestmark = pytest.mark.security
         ("get", "/api/knock/history?place_id=1", {}),
         ("get", "/api/digs?place_id=1", {}),
         ("get", "/api/explore", {}),
-        ("get", "/api/forum?place_id=1", {}),
+        ("get", "/api/forum", {}),
         ("get", "/api/forum/me", {}),
         ("get", "/api/dms/conversations", {}),
     ],

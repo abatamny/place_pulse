@@ -1690,7 +1690,6 @@ function ForumPanel({
   user: User;
 }) {
   const [mode, setMode] = useState<"place" | "mine">("place");
-  const [selectedPlaceId, setSelectedPlaceId] = useState("");
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [personal, setPersonal] = useState<PersonalForumResponse | null>(null);
   const [refreshNumber, setRefreshNumber] = useState(0);
@@ -1703,19 +1702,9 @@ function ForumPanel({
   const placeKey = places.map((place) => place.id).join(",");
 
   useEffect(() => {
-    if (!places.length) {
-      setSelectedPlaceId("");
-      return;
-    }
-    if (!places.some((place) => String(place.id) === selectedPlaceId)) {
-      setSelectedPlaceId(String(places[places.length - 1].id));
-    }
-  }, [placeKey, places, selectedPlaceId]);
-
-  useEffect(() => {
     let active = true;
     setError("");
-    if (mode === "place" && !selectedPlaceId) {
+    if (mode === "place" && !places.length) {
       setPosts([]);
       setPersonal(null);
       setLoading(false);
@@ -1737,7 +1726,7 @@ function ForumPanel({
           }
         } else {
           const response = await apiRequest<ForumFeedResponse>(
-            `/api/forum?place_id=${selectedPlaceId}`,
+            "/api/forum",
             {},
             token,
           );
@@ -1760,7 +1749,7 @@ function ForumPanel({
     return () => {
       active = false;
     };
-  }, [mode, refreshNumber, selectedPlaceId, token]);
+  }, [mode, placeKey, places.length, refreshNumber, token]);
 
   async function submitPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1769,18 +1758,14 @@ function ForumPanel({
     const title = String(form.get("title") || "");
     const body = String(form.get("body") || "");
     const isAnonymous = form.get("anonymous") === "on";
-    const selectedPlace = places.find(
-      (place) => String(place.id) === selectedPlaceId,
-    );
-    const originPlace = places[places.length - 1] ?? selectedPlace;
-    const pendingPlace = selectedPlace ?? originPlace;
+    const originPlace = places[places.length - 1];
     const pendingId = -Date.now();
     const pendingPost: PendingForumPost = {
       id: pendingId,
-      place_id: pendingPlace?.id ?? 0,
-      place_name: pendingPlace?.name ?? "Nearby place",
-      place_display_name: pendingPlace?.display_name ?? "Nearby place",
-      origin_place_id: originPlace?.id ?? pendingPlace?.id ?? 0,
+      place_id: originPlace?.id ?? 0,
+      place_name: originPlace?.name ?? "Nearby place",
+      place_display_name: originPlace?.display_name ?? "Nearby place",
+      origin_place_id: originPlace?.id ?? 0,
       origin_place_name: originPlace?.name ?? "Nearby place",
       origin_place_display_name: originPlace?.display_name ?? "Nearby place",
       user_id: isAnonymous ? null : user.id,
@@ -1818,7 +1803,6 @@ function ForumPanel({
       formElement.reset();
       setPendingPosts((current) => current.filter((post) => post.id !== pendingId));
       setPosts((current) => [published, ...current.filter((post) => post.id !== published.id)]);
-      setSelectedPlaceId(String(published.place_id));
       setNotice(`Forum post shared with ${published.place_display_name}.`);
       setRefreshNumber((value) => value + 1);
     } catch (caught) {
@@ -1830,9 +1814,7 @@ function ForumPanel({
     }
   }
 
-  const visiblePendingPosts = pendingPosts.filter(
-    (post) => mode === "mine" || post.place_id === Number(selectedPlaceId),
-  );
+  const visiblePendingPosts = pendingPosts;
 
   return (
     <section className="knock-card forum-card">
@@ -1842,20 +1824,6 @@ function ForumPanel({
           <h2>Forum</h2>
         </div>
         <div className="forum-heading-actions">
-          {mode === "place" && places.length > 0 && (
-            <label className="forum-place-picker">
-              <span>Viewing</span>
-              <select
-                aria-label="Forum place"
-                onChange={(event) => setSelectedPlaceId(event.target.value)}
-                value={selectedPlaceId}
-              >
-                {places.map((place) => (
-                  <option key={place.id} value={place.id}>{place.display_name}</option>
-                ))}
-              </select>
-            </label>
-          )}
           {mode === "place" && places.length > 0 && (
             <button
               className="button forum-create-button"

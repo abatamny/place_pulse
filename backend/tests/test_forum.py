@@ -173,7 +173,7 @@ def test_anonymous_post_hides_identity_and_personal_area_keeps_totals(
     assert len(fake_forum_ai.calls) == 1
 
     public_feed = client.get(
-        f"/api/forum?place_id={place_id}",
+        "/api/forum",
         headers=auth_headers(voter),
     )
     public_post = public_feed.json()["posts"][0]
@@ -252,7 +252,7 @@ def test_comments_and_votes_are_saved_and_can_be_changed(
     assert len(fake_forum_ai.calls) == 2
 
     feed = client.get(
-        f"/api/forum?place_id={place_id}",
+        "/api/forum",
         headers=auth_headers(author),
     ).json()
     assert feed["posts"][0]["comments"] == [comment.json()]
@@ -333,9 +333,46 @@ def test_parent_forum_scope_records_origin_and_allows_sibling_place_user(
     assert created.json()["origin_place_id"] == first_building_id
     assert fake_forum_ai.route_calls == 1
     feed = client.get(
-        f"/api/forum?place_id={campus_id}", headers=auth_headers(viewer)
+        "/api/forum", headers=auth_headers(viewer)
     )
     assert feed.status_code == 200
     assert [post["id"] for post in feed.json()["posts"]] == [
         created.json()["id"]
+    ]
+
+
+def test_location_feed_combines_every_accessible_scope_and_excludes_others(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+) -> None:
+    campus_id = create_place("Combined Campus", 5020)
+    building_id = create_place(
+        "Combined Building", 5021, parent_place_id=campus_id
+    )
+    unrelated_id = create_place("Unrelated Forum", 5022)
+    author = create_user(
+        "0500005020", "Combined Author", [campus_id, building_id]
+    )
+    viewer = create_user(
+        "0500005021", "Combined Viewer", [campus_id, building_id]
+    )
+    unrelated_author = create_user(
+        "0500005022", "Unrelated Author", [unrelated_id]
+    )
+
+    fake_forum_ai.route_place_id = campus_id
+    campus_post = create_post(client, author)
+    fake_forum_ai.route_place_id = building_id
+    building_post = create_post(client, author)
+    unrelated_post = create_post(client, unrelated_author)
+
+    feed = client.get("/api/forum", headers=auth_headers(viewer))
+
+    assert campus_post.status_code == 201
+    assert building_post.status_code == 201
+    assert unrelated_post.status_code == 201
+    assert feed.status_code == 200
+    assert [post["id"] for post in feed.json()["posts"]] == [
+        building_post.json()["id"],
+        campus_post.json()["id"],
     ]
