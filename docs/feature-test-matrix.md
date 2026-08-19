@@ -1,10 +1,10 @@
 # PlacePulse feature-to-test matrix
 
-This list connects each implemented feature to its main automated evidence. External services are replaced with deterministic fakes; the test suite never calls OpenStreetMap or a paid AI provider.
+This list connects each implemented feature to its main automated evidence. External services are replaced with deterministic fakes; the test suite never calls OpenStreetMap, Twilio, or a paid AI provider.
 
 | Feature or safeguard | Main automated coverage | Test level |
 |---|---|---|
-| Registration, verification, password hashing, login, logout, session revocation | `tests/test_auth.py` | Integration/security |
+| Registration, demo-code fallback, SMS delivery/rollback, password hashing, login, logout, session revocation | `tests/test_auth.py`, `tests/test_sms.py` | Unit/integration/security |
 | Authentication boundary across protected HTTP and WebSocket routes | `tests/test_auth.py`, `tests/test_security.py`, `tests/test_knock.py`, `tests/test_dms.py` | Security |
 | Expired sessions and hashed stored tokens | `tests/test_security.py` | Security |
 | Authentication and feature rate limits | `tests/test_security.py`, `tests/test_digs.py`, `tests/test_dms.py` | Unit/security |

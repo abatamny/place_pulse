@@ -31,8 +31,13 @@ The defaults work without creating an `.env` file. To change them, copy `.env.ex
 | Variable | Default | Purpose |
 |---|---|---|
 | `APP_PORT` | `8080` | Public application port |
-| `APP_ENV` | `development` | Returns verification codes in the UI for localhost use |
+| `APP_ENV` | `development` | Runtime environment label; verification delivery does not depend on it |
 | `VERIFICATION_SECRET` | local development value | Hashes temporary verification codes; change it outside localhost |
+| `SMS_PROVIDER` | empty | Leave empty to show a demo code, or set to `twilio` to send SMS |
+| `TWILIO_ACCOUNT_SID` | empty | Twilio account identifier, required when `SMS_PROVIDER=twilio` |
+| `TWILIO_AUTH_TOKEN` | empty | Twilio API credential, required when `SMS_PROVIDER=twilio` |
+| `TWILIO_FROM_NUMBER` | empty | Message-capable Twilio sender number in international format |
+| `SMS_TIMEOUT_SECONDS` | `8` | Maximum wait for SMS delivery acceptance |
 | `OSM_USER_AGENT` | `PlacePulse-Course-Project/0.1` | Identifies backend requests to OpenStreetMap services |
 | `NOMINATIM_URL` | public Nominatim URL | Reverse-geocoding endpoint |
 | `OVERPASS_URL` | public Overpass URL | Containing-place and boundary endpoint |
@@ -50,6 +55,22 @@ The defaults work without creating an `.env` file. To change them, copy `.env.ex
 | `POSTGRES_PASSWORD` | `placepulse` | Local PostgreSQL password |
 
 Do not commit `.env`; it is ignored by Git.
+
+When no SMS provider is configured, registration returns the six-digit code and
+the frontend labels it as a demo code. To send real verification messages with
+Twilio, configure all of the following values:
+
+```dotenv
+SMS_PROVIDER=twilio
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=your-private-auth-token
+TWILIO_FROM_NUMBER=+15005550006
+SMS_TIMEOUT_SECONDS=8
+```
+
+Users must register with an international phone number such as `+972...` when
+real SMS delivery is enabled. If Twilio is configured but incomplete or rejects
+a message, registration fails safely instead of exposing the verification code.
 
 For an OpenAI-compatible Alibaba Model Studio workspace using `qwen3.7-plus`, use the workspace URL from its credential export and this shape in your private `.env`:
 
@@ -76,7 +97,7 @@ powershell -ExecutionPolicy Bypass -File scripts/configure-ai-provider.ps1 -Cred
 
 1. Open <http://localhost:8080> and choose **Register**.
 2. Enter a nickname, phone number, and password of at least eight characters.
-3. In development mode, the six-digit verification code is shown directly on the verification screen. No SMS service is required for the course demo.
+3. With no `SMS_PROVIDER`, the six-digit verification code is shown directly on the verification screen. When Twilio is configured, it is sent by SMS and omitted from the API response.
 4. Verify the phone number, then log in with the same phone number and password.
 
 Passwords are Argon2-hashed. Login creates a random, revocable session whose token hash is stored in PostgreSQL; logging out deletes that session.
@@ -177,7 +198,7 @@ Prerequisites:
 - Azure CLI, signed in with `az login` and set to the intended subscription
 - An SSH public key
 - The repository available from the public GitHub URL, with the target branch pushed
-- A private environment file outside the repository containing strong `VERIFICATION_SECRET` and `POSTGRES_PASSWORD` values plus the AI provider configuration
+- A private environment file outside the repository containing strong `VERIFICATION_SECRET` and `POSTGRES_PASSWORD` values plus the AI provider configuration and optional Twilio settings
 
 Deploy from PowerShell:
 

@@ -12,7 +12,7 @@ PlacePulse is a mobile-friendly location-based community application. A verified
 
 ## Implemented features
 
-- Phone-style registration and local development verification, Argon2 password hashing, revocable hashed sessions, login, and logout.
+- Phone-style registration with optional Twilio SMS delivery and an automatic demo-code fallback when no provider is configured, Argon2 password hashing, revocable hashed sessions, login, and logout.
 - OpenStreetMap place resolution, stored PostGIS boundaries, expiring presence, completed visits, and VISITOR/BELONG membership.
 - KNOCK place-scoped live messages with WebSockets, persistence, nested-place routing, and role-aware AI moderation.
 - DIG temporary image/video uploads with validation, moderation, presence access, and 24-hour expiry.
@@ -34,7 +34,7 @@ The automated suite covers unit behavior, database/API integration, WebSockets, 
 
 Step 9 verification results:
 
-- Complete backend suite: 62 passed.
+- Complete backend suite: 69 passed.
 - Step 9 system/security/stress selection: 15 passed.
 - Frontend TypeScript/Vite production build: passed; dependency audit reported zero vulnerabilities.
 - Isolated fresh Docker Compose startup: passed with database, backend, worker, and web services running; public UI, health endpoint, and authenticated Nginx proxy flow verified.
