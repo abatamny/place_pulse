@@ -70,24 +70,40 @@ def fake_resolver():
     app.dependency_overrides.pop(get_place_resolver, None)
 
 
-def authenticated_headers(client: TestClient) -> dict[str, str]:
+def register_and_login(
+    client: TestClient,
+    phone: str,
+    nickname: str,
+) -> tuple[dict[str, str], int]:
     registration = client.post(
         "/api/auth/register",
         json={
-            "phone": "0500000099",
-            "nickname": "Place User",
+            "phone": phone,
+            "nickname": nickname,
             "password": "course-password",
         },
     )
+    assert registration.status_code == 201
     code = registration.json()["verification_code"]
-    client.post(
-        "/api/auth/verify", json={"phone": "0500000099", "code": code}
+    verification = client.post(
+        "/api/auth/verify", json={"phone": phone, "code": code}
     )
+    assert verification.status_code == 200
     login = client.post(
         "/api/auth/login",
-        json={"phone": "0500000099", "password": "course-password"},
+        json={"phone": phone, "password": "course-password"},
     )
-    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+    assert login.status_code == 200
+    body = login.json()
+    return (
+        {"Authorization": f"Bearer {body['access_token']}"},
+        body["user"]["id"],
+    )
+
+
+def authenticated_headers(client: TestClient) -> dict[str, str]:
+    headers, _ = register_and_login(client, "0500000099", "Place User")
+    return headers
 
 
 def heartbeat(client: TestClient, headers: dict[str, str]):
@@ -157,6 +173,96 @@ def test_later_heartbeat_discovers_inner_place_inside_stored_broad_place(
 
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Place)) == 2
+
+
+def test_nearby_users_share_an_active_place_and_use_the_deepest_match(
+    client: TestClient, fake_resolver: FakePlaceResolver
+) -> None:
+    viewer_headers, viewer_id = register_and_login(
+        client, "0500000191", "Viewer"
+    )
+    nearby_headers, nearby_id = register_and_login(
+        client, "0500000192", "Nearby User"
+    )
+    _, remote_id = register_and_login(client, "0500000193", "Remote User")
+
+    assert heartbeat(client, viewer_headers).json()["nearby_users"] == []
+    nearby_heartbeat = heartbeat(client, nearby_headers)
+    assert nearby_heartbeat.status_code == 200
+    assert nearby_heartbeat.json()["nearby_users"][0]["id"] == viewer_id
+
+    with SessionLocal() as db:
+        remote_place = Place(
+            osm_type="way",
+            osm_id=1999,
+            name="Remote Campus",
+            locality="Haifa",
+            center_lat=32.1,
+            center_lon=35.1,
+            radius_m=75.0,
+        )
+        db.add(remote_place)
+        db.flush()
+        now = utc_now()
+        db.add_all(
+            [
+                Presence(
+                    user_id=remote_id,
+                    place_id=remote_place.id,
+                    started_at=now,
+                    last_seen_at=now,
+                ),
+                PlaceMembership(
+                    user_id=remote_id,
+                    place_id=remote_place.id,
+                    rank="VISITOR",
+                    completed_visits=0,
+                ),
+            ]
+        )
+        db.commit()
+
+    current = client.get("/api/presence/current", headers=viewer_headers)
+    assert current.status_code == 200
+    assert current.json()["nearby_users"] == [
+        {
+            "id": nearby_id,
+            "nickname": "Nearby User",
+            "shared_place_id": current.json()["places"][1]["id"],
+            "shared_place_name": "Engineering Building",
+            "shared_place_display_name": (
+                "Engineering Building · Course Campus, Haifa"
+            ),
+        }
+    ]
+
+    campus_id, building_id = [
+        place["id"] for place in current.json()["places"]
+    ]
+    with SessionLocal() as db:
+        building_presence = db.get(Presence, (nearby_id, building_id))
+        assert building_presence is not None
+        building_presence.last_seen_at = (
+            utc_now() - PRESENCE_TTL - timedelta(seconds=1)
+        )
+        db.commit()
+
+    campus_only = client.get("/api/presence/current", headers=viewer_headers)
+    assert campus_only.status_code == 200
+    assert campus_only.json()["nearby_users"][0]["shared_place_id"] == campus_id
+    assert campus_only.json()["nearby_users"][0]["shared_place_name"] == "Course Campus"
+
+    with SessionLocal() as db:
+        campus_presence = db.get(Presence, (nearby_id, campus_id))
+        assert campus_presence is not None
+        campus_presence.last_seen_at = (
+            utc_now() - PRESENCE_TTL - timedelta(seconds=1)
+        )
+        db.commit()
+
+    expired = client.get("/api/presence/current", headers=viewer_headers)
+    assert expired.status_code == 200
+    assert expired.json()["nearby_users"] == []
 
 
 def test_osm_locality_extraction_prefers_address_then_city_boundary() -> None:

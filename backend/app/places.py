@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import AuthContext, require_auth
 from app.database import SessionLocal
-from app.models import Place, PlaceMembership, Presence, Visit
+from app.models import Place, PlaceMembership, Presence, User, Visit
 from app.osm import (
     OSMPlaceResolver,
     PlaceResolutionError,
@@ -17,7 +17,12 @@ from app.osm import (
 )
 from app.place_labels import place_display_name
 from app.rate_limit import AuthRateLimiter
-from app.schemas import CoordinatesRequest, CurrentPlaceResponse, PresenceResponse
+from app.schemas import (
+    CoordinatesRequest,
+    CurrentPlaceResponse,
+    NearbyUserResponse,
+    PresenceResponse,
+)
 
 PRESENCE_TTL = timedelta(seconds=90)
 BELONG_VISIT_THRESHOLD = 3
@@ -187,14 +192,17 @@ def update_presence(
         memberships[place.id] = ensure_membership(db, user_id, place.id)
 
     db.flush()
-    return presence_response(db, places, memberships)
+    return presence_response(db, user_id, places, memberships, now)
 
 
 def presence_response(
     db: Session,
+    user_id: int,
     places: list[Place],
     memberships: dict[int, PlaceMembership],
+    now: datetime,
 ) -> PresenceResponse:
+    ordered_places = order_places(places)
     return PresenceResponse(
         places=[
             CurrentPlaceResponse(
@@ -208,8 +216,9 @@ def presence_response(
                 rank=memberships[place.id].rank,
                 completed_visits=memberships[place.id].completed_visits,
             )
-            for place in order_places(places)
+            for place in ordered_places
         ],
+        nearby_users=nearby_users_response(db, user_id, ordered_places, now),
         expires_in_seconds=int(PRESENCE_TTL.total_seconds()),
     )
 
@@ -228,6 +237,61 @@ def order_places(places: list[Place]) -> list[Place]:
         return result
 
     return sorted(places, key=lambda place: (depth(place), place.name))
+
+
+def nearby_users_response(
+    db: Session,
+    user_id: int,
+    places: list[Place],
+    now: datetime,
+) -> list[NearbyUserResponse]:
+    if not places:
+        return []
+
+    places_by_id = {place.id: place for place in places}
+    place_priority = {
+        place.id: index for index, place in enumerate(order_places(places))
+    }
+    rows = db.execute(
+        select(
+            User.id.label("user_id"),
+            User.nickname,
+            Presence.place_id,
+        )
+        .join(Presence, Presence.user_id == User.id)
+        .where(
+            User.id != user_id,
+            User.is_verified.is_(True),
+            Presence.place_id.in_(tuple(places_by_id)),
+            Presence.last_seen_at >= now - PRESENCE_TTL,
+        )
+    ).all()
+
+    deepest_shared_by_user: dict[int, tuple[str, int]] = {}
+    for row in rows:
+        current = deepest_shared_by_user.get(row.user_id)
+        if (
+            current is None
+            or place_priority[row.place_id] > place_priority[current[1]]
+        ):
+            deepest_shared_by_user[row.user_id] = (row.nickname, row.place_id)
+
+    nearby_users: list[NearbyUserResponse] = []
+    for nearby_user_id, (nickname, shared_place_id) in sorted(
+        deepest_shared_by_user.items(),
+        key=lambda item: (item[1][0].casefold(), item[0]),
+    ):
+        shared_place = places_by_id[shared_place_id]
+        nearby_users.append(
+            NearbyUserResponse(
+                id=nearby_user_id,
+                nickname=nickname,
+                shared_place_id=shared_place_id,
+                shared_place_name=shared_place.name,
+                shared_place_display_name=place_display_name(db, shared_place),
+            )
+        )
+    return nearby_users
 
 
 @places_router.post("/heartbeat", response_model=PresenceResponse)
@@ -280,8 +344,15 @@ def current_presence(auth: AuthContext = Depends(require_auth)) -> PresenceRespo
             place.id: ensure_membership(db, auth.user.id, place.id)
             for place in places
         }
+        response = presence_response(
+            db,
+            auth.user.id,
+            places,
+            memberships,
+            now,
+        )
         db.commit()
-        return presence_response(db, places, memberships)
+        return response
 
 
 @places_router.post("/leave", status_code=status.HTTP_204_NO_CONTENT)

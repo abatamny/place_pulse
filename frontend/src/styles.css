@@ -1704,6 +1704,56 @@ button:focus-visible {
   font-size: 0.7rem;
 }
 
+.map-nearby-marker {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.nearby-user-blob {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border: 0.24rem solid rgb(255 255 255 / 92%);
+  border-radius: 52% 48% 44% 56% / 46% 55% 45% 54%;
+  background: #5b7f71;
+  color: #fff;
+  box-shadow: 0 0.45rem 1rem rgb(23 45 39 / 22%);
+  font-size: 0.82rem;
+  font-weight: 850;
+  animation: user-float 5.5s ease-in-out infinite;
+}
+
+.map-nearby-marker--1 .nearby-user-blob {
+  background: #8a6c4b;
+}
+
+.map-nearby-marker--2 .nearby-user-blob {
+  background: #61718f;
+}
+
+.map-nearby-marker--3 .nearby-user-blob {
+  background: #7a617e;
+}
+
+.map-nearby-marker strong {
+  max-width: 7rem;
+  margin-top: 0.25rem;
+  overflow: hidden;
+  padding: 0.18rem 0.42rem;
+  border-radius: 999px;
+  background: rgb(251 252 251 / 90%);
+  box-shadow: 0 0.2rem 0.7rem rgb(23 45 39 / 11%);
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @keyframes user-float {
   50% { transform: translateY(-0.2rem) rotate(3deg); }
 }
@@ -2492,7 +2542,8 @@ button:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .user-blob,
-  .user-pulse {
+  .user-pulse,
+  .nearby-user-blob {
     animation: none;
   }
 

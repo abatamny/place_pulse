@@ -82,8 +82,17 @@ class CurrentPlaceResponse(BaseModel):
     completed_visits: int
 
 
+class NearbyUserResponse(BaseModel):
+    id: int
+    nickname: str
+    shared_place_id: int
+    shared_place_name: str
+    shared_place_display_name: str
+
+
 class PresenceResponse(BaseModel):
     places: list[CurrentPlaceResponse]
+    nearby_users: list[NearbyUserResponse]
     expires_in_seconds: int
 
 

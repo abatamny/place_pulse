@@ -38,8 +38,17 @@ type CurrentPlace = {
   completed_visits: number;
 };
 
+type NearbyUser = {
+  id: number;
+  nickname: string;
+  shared_place_id: number;
+  shared_place_name: string;
+  shared_place_display_name: string;
+};
+
 type PresenceResponse = {
   places: CurrentPlace[];
+  nearby_users: NearbyUser[];
   expires_in_seconds: number;
 };
 
@@ -331,10 +340,12 @@ function PresencePanel({
   token,
   places,
   onPlacesChange,
+  onNearbyUsersChange,
 }: {
   token: string;
   places: CurrentPlace[];
   onPlacesChange: (places: CurrentPlace[]) => void;
+  onNearbyUsersChange: (users: NearbyUser[]) => void;
 }) {
   const [requestNumber, setRequestNumber] = useState(0);
   const [status, setStatus] = useState<"idle" | "requesting" | "active">(
@@ -346,12 +357,13 @@ function PresencePanel({
     apiRequest<PresenceResponse>("/api/presence/current", {}, token)
       .then((response) => {
         onPlacesChange(response.places);
+        onNearbyUsersChange(response.nearby_users);
         if (response.places.length) {
           setStatus("active");
         }
       })
       .catch(() => undefined);
-  }, [token, onPlacesChange]);
+  }, [token, onPlacesChange, onNearbyUsersChange]);
 
   useEffect(() => {
     if (requestNumber === 0) {
@@ -384,6 +396,7 @@ function PresencePanel({
         );
         if (active) {
           onPlacesChange(response.places);
+          onNearbyUsersChange(response.nearby_users);
           setStatus("active");
           setError("");
         }
@@ -447,7 +460,7 @@ function PresencePanel({
       window.clearInterval(intervalId);
       window.removeEventListener("pagehide", leaveOnPageExit);
     };
-  }, [requestNumber, token, onPlacesChange]);
+  }, [requestNumber, token, onPlacesChange, onNearbyUsersChange]);
 
   return (
     <section className="presence-panel">
@@ -2368,6 +2381,15 @@ function MapTexture() {
   );
 }
 
+function nearbyMarkerPosition(userId: number) {
+  const angle = (((userId * 137.508) % 360) * Math.PI) / 180;
+  const radius = 21 + (userId % 3) * 6;
+  return {
+    left: 50 + Math.cos(angle) * radius,
+    top: 50 + Math.sin(angle) * radius * 0.72,
+  };
+}
+
 function SignedInApp({
   token,
   user,
@@ -2378,6 +2400,7 @@ function SignedInApp({
   onLogout: () => void;
 }) {
   const [places, setPlaces] = useState<CurrentPlace[]>([]);
+  const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
   const [activeOverlay, setActiveOverlay] = useState<"explore" | "forum" | null>(null);
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -2539,8 +2562,28 @@ function SignedInApp({
               </div>
             )}
 
+            {nearbyUsers.map((nearbyUser) => {
+              const position = nearbyMarkerPosition(nearbyUser.id);
+              return (
+                <div
+                  aria-label={`${nearbyUser.nickname}, nearby at ${nearbyUser.shared_place_display_name}`}
+                  className={`map-nearby-marker map-nearby-marker--${nearbyUser.id % 4}`}
+                  key={nearbyUser.id}
+                  role="img"
+                  style={{ left: `${position.left}%`, top: `${position.top}%` }}
+                  title={`Nearby at ${nearbyUser.shared_place_display_name}`}
+                >
+                  <span aria-hidden="true" className="nearby-user-blob">
+                    {nearbyUser.nickname.slice(0, 1).toUpperCase()}
+                  </span>
+                  <strong>{nearbyUser.nickname}</strong>
+                </div>
+              );
+            })}
+
             <div className="map-location-control">
               <PresencePanel
+                onNearbyUsersChange={setNearbyUsers}
                 onPlacesChange={setPlaces}
                 places={places}
                 token={token}
