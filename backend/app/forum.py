@@ -4,7 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.ai import AIAdapter, get_ai_adapter, moderate_before_publication
+from app.ai import (
+    AIAdapter,
+    PlaceRouteOption,
+    get_ai_adapter,
+    moderate_before_publication,
+    route_forum_before_publication,
+)
 from app.auth import AuthContext, require_auth
 from app.database import SessionLocal
 from app.models import (
@@ -16,7 +22,7 @@ from app.models import (
     User,
 )
 from app.place_labels import place_display_name
-from app.place_scope import resolve_content_place_scope
+from app.place_scope import current_content_places
 from app.places import PRESENCE_TTL
 from app.rate_limit import AuthRateLimiter
 from app.schemas import (
@@ -206,20 +212,38 @@ async def create_post(
 ) -> ForumPostResponse:
     forum_rate_limiter.check(request, f"forum-post-{auth.user.id}")
     with SessionLocal() as db:
-        require_place_access(db, auth.user.id, payload.place_id)
+        current_places = current_content_places(db, auth.user.id)
+        route_options = [
+            PlaceRouteOption(
+                place_id=place.id,
+                name=place_display_name(db, place),
+                parent_place_id=(
+                    current_places.scopes[index - 1].id if index else None
+                ),
+            )
+            for index, place in enumerate(current_places.scopes)
+        ]
 
-    await require_safe_forum_text(
-        adapter,
-        f"Title: {payload.title}\n\nPost: {payload.body}",
-    )
+    post_text = f"Title: {payload.title}\n\nPost: {payload.body}"
+    await require_safe_forum_text(adapter, post_text)
+    route = None
+    if len(route_options) > 1:
+        route = await route_forum_before_publication(
+            adapter, post_text, route_options
+        )
 
     with SessionLocal.begin() as db:
-        content_places = resolve_content_place_scope(
-            db, auth.user.id, payload.place_id
+        current_places = current_content_places(db, auth.user.id)
+        allowed_scopes = {
+            candidate.id: candidate for candidate in current_places.scopes
+        }
+        place = allowed_scopes.get(
+            route.place_id if route is not None else current_places.origin.id,
+            current_places.origin,
         )
         post = ForumPost(
-            place_id=payload.place_id,
-            origin_place_id=content_places.origin.id,
+            place_id=place.id,
+            origin_place_id=current_places.origin.id,
             user_id=auth.user.id,
             title=payload.title,
             body=payload.body,

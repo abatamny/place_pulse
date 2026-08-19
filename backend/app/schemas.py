@@ -207,7 +207,6 @@ class ExploreLikeResponse(BaseModel):
 
 
 class ForumPostCreate(BaseModel):
-    place_id: int = Field(gt=0)
     title: str = Field(min_length=1, max_length=120)
     body: str = Field(min_length=1, max_length=1800)
     is_anonymous: bool = False
