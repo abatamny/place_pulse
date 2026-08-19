@@ -192,10 +192,16 @@ type PendingKnock = {
 type PendingDig = {
   id: number;
   nickname: string;
+  place_id: number;
   place_name: string;
   place_display_name: string;
   media_type: "image" | "video";
   preview_url: string;
+};
+
+type LocalDigMarker = {
+  pending: PendingDig;
+  published: Dig | null;
 };
 
 type PersonalForumResponse = {
@@ -697,11 +703,13 @@ function KnockPanel({
   user,
   places,
   activeScope,
+  onDigPublished,
 }: {
   token: string;
   user: User;
   places: CurrentPlace[];
   activeScope: CurrentPlace | null;
+  onDigPublished: (dig: Dig) => void;
 }) {
   const socketRef = useRef<WebSocket | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
@@ -790,6 +798,8 @@ function KnockPanel({
             });
           }
           setError("");
+        } else if (payload.type === "dig_published") {
+          onDigPublished(payload.dig as Dig);
         } else if (payload.type === "error") {
           setPendingMessages((current) => current.slice(1));
           setError(payload.detail || "The KNOCK could not be sent.");
@@ -823,7 +833,7 @@ function KnockPanel({
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [token, placeKey, activeScope?.id, user.id]);
+  }, [token, placeKey, activeScope?.id, user.id, onDigPublished]);
 
   function sendKnock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1066,17 +1076,23 @@ function DigSharedTime({ createdAt }: { createdAt: string }) {
 function DigPanel({
   token,
   activeScope,
+  places,
+  publishedDig,
+  userId,
 }: {
   token: string;
   activeScope: CurrentPlace | null;
+  places: CurrentPlace[];
+  publishedDig: Dig | null;
+  userId: number;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const handledPublishedDigIdRef = useRef<number | null>(null);
   const [digs, setDigs] = useState<Dig[]>([]);
-  const [refreshNumber, setRefreshNumber] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [selectedDig, setSelectedDig] = useState<Dig | null>(null);
-  const [pendingDig, setPendingDig] = useState<PendingDig | null>(null);
+  const [localDigMarkers, setLocalDigMarkers] = useState<LocalDigMarker[]>([]);
   const [selectedFilename, setSelectedFilename] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -1089,10 +1105,12 @@ function DigPanel({
       return;
     }
 
+    const selectedScopeId = activeScope.id;
     let active = true;
+    setDigs([]);
     setError("");
     apiRequest<DigFeedResponse>(
-      `/api/digs?place_id=${activeScope.id}`,
+      `/api/digs?place_id=${selectedScopeId}`,
       {},
       token,
     )
@@ -1100,7 +1118,15 @@ function DigPanel({
         if (!active) {
           return;
         }
-        setDigs(feed.digs);
+        setDigs((current) => {
+          const liveIds = new Set(current.map((dig) => dig.id));
+          return [
+            ...current,
+            ...feed.digs.filter((dig) => !liveIds.has(dig.id)),
+          ].sort((first, second) =>
+            second.created_at.localeCompare(first.created_at),
+          );
+        });
       })
       .catch((caught) => {
         if (active) {
@@ -1110,7 +1136,35 @@ function DigPanel({
     return () => {
       active = false;
     };
-  }, [activeScope?.id, refreshNumber, token]);
+  }, [activeScope?.id, token]);
+
+  useEffect(() => {
+    if (!publishedDig || handledPublishedDigIdRef.current === publishedDig.id) {
+      return;
+    }
+    handledPublishedDigIdRef.current = publishedDig.id;
+    if (publishedDig.place_id !== activeScope?.id) {
+      return;
+    }
+    if (publishedDig.user_id === userId) {
+      setLocalDigMarkers((current) => {
+        const pendingIndex = current.findIndex(
+          (marker) =>
+            marker.published === null
+            && marker.pending.place_id === publishedDig.place_id,
+        );
+        return pendingIndex === -1
+          ? current
+          : current.map((marker, index) =>
+              index === pendingIndex ? { ...marker, published: publishedDig } : marker,
+            );
+      });
+    }
+    setDigs((current) => [
+      publishedDig,
+      ...current.filter((dig) => dig.id !== publishedDig.id),
+    ]);
+  }, [activeScope?.id, publishedDig, userId]);
 
   async function uploadDig(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1132,14 +1186,19 @@ function DigPanel({
     setError("");
     setNotice("");
     const previewUrl = URL.createObjectURL(selectedFile);
-    setPendingDig({
+    const pendingDig: PendingDig = {
       id: -Date.now(),
       nickname: "You",
+      place_id: activeScope.id,
       place_name: activeScope.name,
       place_display_name: activeScope.display_name,
       media_type: selectedFile.type.startsWith("video/") ? "video" : "image",
       preview_url: previewUrl,
-    });
+    };
+    setLocalDigMarkers((current) => [
+      { pending: pendingDig, published: null },
+      ...current,
+    ]);
     setComposerOpen(false);
     const form = new FormData();
     form.set("file", selectedFile);
@@ -1156,13 +1215,24 @@ function DigPanel({
       setNotice(
         `DIG shared with ${published.place_display_name}. It will disappear after 24 hours.`,
       );
-      setDigs((current) => [published, ...current]);
-      setRefreshNumber((value) => value + 1);
+      setDigs((current) => [
+        published,
+        ...current.filter((dig) => dig.id !== published.id),
+      ]);
+      setLocalDigMarkers((current) =>
+        current.map((marker) =>
+          marker.pending.id === pendingDig.id
+            ? { ...marker, published }
+            : marker,
+        ),
+      );
     } catch (caught) {
+      setLocalDigMarkers((current) =>
+        current.filter((marker) => marker.pending.id !== pendingDig.id),
+      );
       setError(caught instanceof Error ? caught.message : "Upload failed");
       setComposerOpen(true);
     } finally {
-      setPendingDig(null);
       setSelectedFilename("");
       URL.revokeObjectURL(previewUrl);
       setUploading(false);
@@ -1173,50 +1243,73 @@ function DigPanel({
     return null;
   }
 
+  function markerPosition(markerId: number, placeId: number) {
+    const placeIndex = places.findIndex((place) => place.id === placeId);
+    return orbitMarkerPosition(markerId, placeIndex, places.length);
+  }
+
+  const activeLocalMarkers = localDigMarkers.filter(
+    (marker) => marker.pending.place_id === activeScope.id,
+  );
+  const localPublishedIds = new Set(
+    activeLocalMarkers.flatMap((marker) =>
+      marker.published ? [marker.published.id] : [],
+    ),
+  );
+  const serverDigMarkers = digs.filter((dig) => !localPublishedIds.has(dig.id));
+
   return (
     <div
       className={`dig-map-layer ${selectedDig ? "dig-map-layer--expanded" : ""}`}
       aria-live="polite"
     >
-      {pendingDig && (
-        <div
-          className="dig-map-marker dig-map-marker--pending"
-          style={{ left: "46%", top: "24%" }}
-        >
-          <span className="dig-marker-shell moderation-pending">
-            {pendingDig.media_type === "video" ? (
-              <video
-                className="dig-media dig-media--marker"
-                muted
-                playsInline
-                src={pendingDig.preview_url}
-              />
-            ) : (
-              <img
-                alt="Your DIG being checked"
-                className="dig-media dig-media--marker"
-                src={pendingDig.preview_url}
-              />
-            )}
-          </span>
-          <span className="dig-marker-name pending-marker-label">
-            Checking · only you
-          </span>
-        </div>
-      )}
-      {digs.map((dig, index) => {
-        const positions = [
-          [18, 24], [71, 18], [31, 68], [77, 64],
-          [52, 34], [12, 52], [61, 76], [85, 39],
-        ];
-        const [left, top] = positions[index % positions.length];
+      {activeLocalMarkers.map((marker) => {
+        const dig = marker.published;
+        const pendingDig = marker.pending;
+        return (
+          <button
+            aria-label={dig
+              ? `Open DIG by ${dig.nickname} from ${dig.origin_place_display_name}`
+              : "Your DIG is being checked"}
+            className={`dig-map-marker ${dig ? "" : "dig-map-marker--pending"}`}
+            disabled={!dig}
+            key={pendingDig.id}
+            onClick={() => dig && setSelectedDig(dig)}
+            style={markerPosition(pendingDig.id, pendingDig.place_id)}
+            type="button"
+          >
+            <span className={`dig-marker-shell ${dig ? "" : "moderation-pending"}`}>
+              {dig ? (
+                <DigMedia dig={dig} token={token} variant="marker" />
+              ) : pendingDig.media_type === "video" ? (
+                <video
+                  className="dig-media dig-media--marker"
+                  muted
+                  playsInline
+                  src={pendingDig.preview_url}
+                />
+              ) : (
+                <img
+                  alt="Your DIG being checked"
+                  className="dig-media dig-media--marker"
+                  src={pendingDig.preview_url}
+                />
+              )}
+            </span>
+            <span className={`dig-marker-name ${dig ? "" : "pending-marker-label"}`}>
+              {dig ? dig.nickname : "Checking · only you"}
+            </span>
+          </button>
+        );
+      })}
+      {serverDigMarkers.map((dig) => {
         return (
           <button
             aria-label={`Open DIG by ${dig.nickname} from ${dig.origin_place_display_name}`}
             className="dig-map-marker"
             key={dig.id}
             onClick={() => setSelectedDig(dig)}
-            style={{ left: `${left}%`, top: `${top}%` }}
+            style={markerPosition(dig.id, dig.place_id)}
             type="button"
           >
             <span className="dig-marker-shell">
@@ -1244,7 +1337,7 @@ function DigPanel({
         </button>
       </div>
 
-      {digs.length === 0 && !composerOpen && (
+      {digs.length === 0 && activeLocalMarkers.length === 0 && !composerOpen && (
         <button
           className="dig-map-empty"
           onClick={() => setComposerOpen(true)}
@@ -2618,6 +2711,19 @@ function nearbyMarkerPosition(
   };
 }
 
+function orbitMarkerPosition(
+  markerId: number,
+  placeIndex: number,
+  placeCount: number,
+) {
+  const angle = (((Math.abs(markerId) * 137.508 + 29) % 360) * Math.PI) / 180;
+  const orbit = orbitDimensions(Math.max(0, placeIndex), placeCount);
+  return {
+    left: `${50 + Math.cos(angle) * (orbit.width / 2)}%`,
+    top: `${50 + Math.sin(angle) * (orbit.height / 2)}%`,
+  };
+}
+
 function SignedInApp({
   token,
   user,
@@ -2637,6 +2743,7 @@ function SignedInApp({
   const [accountOpen, setAccountOpen] = useState(false);
   const [dmUnread, setDmUnread] = useState(0);
   const [latestDMMessage, setLatestDMMessage] = useState<DMMessage | null>(null);
+  const [latestPublishedDig, setLatestPublishedDig] = useState<Dig | null>(null);
   const [dmSocketStatus, setDmSocketStatus] = useState<
     "connecting" | "connected" | "disconnected"
   >("connecting");
@@ -2962,7 +3069,13 @@ function SignedInApp({
                 token={token}
               />
             </div>
-            <DigPanel activeScope={activeScope} token={token} />
+            <DigPanel
+              activeScope={activeScope}
+              places={places}
+              publishedDig={latestPublishedDig}
+              token={token}
+              userId={user.id}
+            />
 
             {activeOverlay && (
               <section className={`map-overlay map-overlay--${activeOverlay}`}>
@@ -2987,6 +3100,7 @@ function SignedInApp({
         <aside className="knock-column" aria-label="Live nearby conversation">
           <KnockPanel
             activeScope={activeScope}
+            onDigPublished={setLatestPublishedDig}
             places={places}
             token={token}
             user={user}

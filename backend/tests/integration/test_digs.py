@@ -212,6 +212,23 @@ def test_approved_image_is_saved_and_appears_in_feed(
         assert (settings.media_root / "digs" / dig.storage_name).is_file()
 
 
+def test_approved_image_is_broadcast_to_present_viewers(
+    client: TestClient, fake_media_ai: FakeMediaAI
+) -> None:
+    place_id = create_place("Live DIG Courtyard", 3011, locality="Haifa")
+    uploader = create_present_user("0500003011", "Uploader", [place_id])
+    viewer = create_present_user("0500003012", "Viewer", [place_id])
+
+    with client.websocket_connect(f"/ws/knock?token={viewer.token}") as websocket:
+        assert websocket.receive_json()["type"] == "ready"
+        uploaded = upload_image(client, uploader, place_id=place_id)
+        event = websocket.receive_json()
+
+    assert uploaded.status_code == 201
+    assert event["type"] == "dig_published"
+    assert event["dig"] == uploaded.json()
+
+
 def test_short_video_is_validated_and_moderated_as_frames(
     client: TestClient, fake_media_ai: FakeMediaAI
 ) -> None:

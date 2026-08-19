@@ -1,4 +1,5 @@
 import io
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -30,7 +31,7 @@ from app.auth import AuthContext, require_auth
 from app.config import settings
 from app.database import SessionLocal
 from app.jobs import queue_explore_cluster_check
-from app.knock import user_is_present
+from app.knock import room_manager, user_is_present
 from app.models import Dig, Place, User
 from app.place_labels import place_display_name
 from app.place_scope import current_content_places, resolve_content_place_scope
@@ -58,6 +59,7 @@ IMAGE_FORMATS = {
 }
 
 digs_router = APIRouter(prefix="/api/digs", tags=["DIG"])
+logger = logging.getLogger(__name__)
 upload_rate_limiter = AuthRateLimiter(
     max_attempts=UPLOADS_PER_MINUTE, window_seconds=60
 )
@@ -333,10 +335,28 @@ async def upload_dig(
             queue_explore_cluster_check(db, origin_place.id, auth.user.id)
             db.commit()
             db.refresh(dig)
-            return dig_response(db, dig, place, origin_place, auth.user.nickname)
+            published = dig_response(
+                db,
+                dig,
+                place,
+                origin_place,
+                auth.user.nickname,
+            )
     except Exception:
         media_path.unlink(missing_ok=True)
         raise
+
+    try:
+        await room_manager.broadcast(
+            published.place_id,
+            {
+                "type": "dig_published",
+                "dig": published.model_dump(mode="json"),
+            },
+        )
+    except Exception:
+        logger.exception("Could not broadcast published DIG %s", published.id)
+    return published
 
 
 @digs_router.get("", response_model=DigFeedResponse)
