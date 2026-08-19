@@ -50,7 +50,12 @@ def fake_forum_ai():
     app.dependency_overrides.pop(get_ai_adapter, None)
 
 
-def create_place(name: str, osm_id: int, locality: str | None = None) -> int:
+def create_place(
+    name: str,
+    osm_id: int,
+    locality: str | None = None,
+    parent_place_id: int | None = None,
+) -> int:
     with SessionLocal() as db:
         place = Place(
             osm_type="way",
@@ -60,6 +65,7 @@ def create_place(name: str, osm_id: int, locality: str | None = None) -> int:
             center_lat=32.0,
             center_lon=35.0,
             radius_m=75,
+            parent_place_id=parent_place_id,
         )
         db.add(place)
         db.commit()
@@ -286,3 +292,35 @@ def test_presence_and_moderation_are_required_before_publication(
     assert len(fake_forum_ai.calls) == 1
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(ForumPost)) == 0
+
+
+def test_parent_forum_scope_records_origin_and_allows_sibling_place_user(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+) -> None:
+    campus_id = create_place("Forum Campus", 5010)
+    first_building_id = create_place(
+        "First Building", 5011, parent_place_id=campus_id
+    )
+    second_building_id = create_place(
+        "Second Building", 5012, parent_place_id=campus_id
+    )
+    author = create_user(
+        "0500005010", "Campus Author", [campus_id, first_building_id]
+    )
+    viewer = create_user(
+        "0500005011", "Campus Viewer", [campus_id, second_building_id]
+    )
+
+    created = create_post(client, author, campus_id)
+
+    assert created.status_code == 201
+    assert created.json()["place_id"] == campus_id
+    assert created.json()["origin_place_id"] == first_building_id
+    feed = client.get(
+        f"/api/forum?place_id={campus_id}", headers=auth_headers(viewer)
+    )
+    assert feed.status_code == 200
+    assert [post["id"] for post in feed.json()["posts"]] == [
+        created.json()["id"]
+    ]

@@ -83,7 +83,7 @@ def create_place(
 def create_user(
     phone: str,
     nickname: str,
-    place_id: int | None = None,
+    place_id: int | list[int] | None = None,
 ) -> SessionIdentity:
     token = secrets.token_urlsafe(24)
     now = datetime.now(timezone.utc)
@@ -103,11 +103,14 @@ def create_user(
                 expires_at=now + timedelta(hours=1),
             )
         )
-        if place_id is not None:
+        place_ids = place_id if isinstance(place_id, list) else [place_id]
+        for current_place_id in place_ids:
+            if current_place_id is None:
+                continue
             db.add(
                 Presence(
                     user_id=user.id,
-                    place_id=place_id,
+                    place_id=current_place_id,
                     started_at=now,
                     last_seen_at=now,
                 )
@@ -115,7 +118,7 @@ def create_user(
             db.add(
                 PlaceMembership(
                     user_id=user.id,
-                    place_id=place_id,
+                    place_id=current_place_id,
                     rank="VISITOR",
                     completed_visits=0,
                 )
@@ -172,6 +175,7 @@ def create_memory_for_user(
             db.add(
                 Dig(
                     place_id=place_id,
+                    origin_place_id=place_id,
                     user_id=identity.user_id,
                     media_type="image",
                     content_type="image/jpeg",
@@ -358,3 +362,65 @@ def test_participant_can_comment_like_and_unlike_after_leaving(
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(ExploreComment)) == 1
         assert db.scalar(select(func.count()).select_from(ExploreLike)) == 0
+
+
+def test_moment_uses_deepest_place_shared_by_dig_attachment_paths(
+    client: TestClient,
+    fake_media_ai,
+) -> None:
+    campus_id = create_place("Moment Campus", 4020)
+    building_id = create_place("Moment Building", 4021, campus_id)
+    first_room_id = create_place("Room One", 4022, building_id)
+    second_room_id = create_place("Room Two", 4023, building_id)
+    first = create_user(
+        "0500004020", "First Room", [campus_id, building_id, first_room_id]
+    )
+    second = create_user(
+        "0500004021", "Second Room", [campus_id, building_id, second_room_id]
+    )
+
+    uploads = [
+        upload_image(client, first, building_id, 1),
+        upload_image(client, first, building_id, 2),
+        upload_image(client, second, building_id, 3),
+    ]
+    assert [response.status_code for response in uploads] == [201, 201, 201]
+    assert [response.json()["origin_place_id"] for response in uploads] == [
+        first_room_id,
+        first_room_id,
+        second_room_id,
+    ]
+
+    assert asyncio.run(process_next_job()) is True
+    with SessionLocal() as db:
+        memory = db.scalar(select(ExploreMemory))
+        assert memory is not None
+        assert memory.place_id == building_id
+
+
+def test_local_dig_scopes_do_not_create_a_broader_moment(
+    client: TestClient,
+    fake_media_ai,
+) -> None:
+    campus_id = create_place("Private Moment Campus", 4030)
+    building_id = create_place("Private Moment Building", 4031, campus_id)
+    first_room_id = create_place("Private Room One", 4032, building_id)
+    second_room_id = create_place("Private Room Two", 4033, building_id)
+    first = create_user(
+        "0500004030", "Private First", [campus_id, building_id, first_room_id]
+    )
+    second = create_user(
+        "0500004031", "Private Second", [campus_id, building_id, second_room_id]
+    )
+
+    uploads = [
+        upload_image(client, first, first_room_id, 1),
+        upload_image(client, first, first_room_id, 2),
+        upload_image(client, second, second_room_id, 3),
+    ]
+    assert [response.status_code for response in uploads] == [201, 201, 201]
+    for _ in uploads:
+        assert asyncio.run(process_next_job()) is True
+
+    with SessionLocal() as db:
+        assert db.scalar(select(ExploreMemory)) is None

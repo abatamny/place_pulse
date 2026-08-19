@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 from sqlalchemy import and_, select
+from sqlalchemy.orm import aliased
 
 from app.ai import (
     AIAdapter,
@@ -20,6 +21,7 @@ from app.database import SessionLocal
 from app.jobs import PENDING, TEXT_MODERATION_JOB
 from app.models import AIJob, KnockMessage, Place, PlaceMembership, Presence, User
 from app.place_labels import place_display_name
+from app.place_scope import resolve_content_place_scope
 from app.places import PRESENCE_TTL, expire_stale_presences
 from app.schemas import KnockHistoryResponse, KnockMessageResponse, KnockSendPayload
 
@@ -219,6 +221,10 @@ def save_message(
 ) -> KnockMessageResponse | None:
     cutoff = utc_now() - PRESENCE_TTL
     with SessionLocal() as db:
+        try:
+            content_places = resolve_content_place_scope(db, user_id, place.id)
+        except HTTPException:
+            return None
         current_rank = db.scalar(
             select(PlaceMembership.rank)
             .join(
@@ -239,6 +245,7 @@ def save_message(
 
         message = KnockMessage(
             place_id=place.id,
+            origin_place_id=content_places.origin.id,
             user_id=user_id,
             text=text,
             author_rank=current_rank,
@@ -270,6 +277,9 @@ def save_message(
             place_id=message.place_id,
             place_name=place.name,
             place_display_name=place.display_name,
+            origin_place_id=content_places.origin.id,
+            origin_place_name=content_places.origin.name,
+            origin_place_display_name=place_display_name(db, content_places.origin),
             user_id=message.user_id,
             nickname=nickname,
             author_rank=message.author_rank,
@@ -428,9 +438,11 @@ def knock_history(
         )
 
     with SessionLocal() as db:
+        origin_place = aliased(Place)
         rows = db.execute(
-            select(KnockMessage, Place, User.nickname)
+            select(KnockMessage, Place, origin_place, User.nickname)
             .join(Place, Place.id == KnockMessage.place_id)
+            .join(origin_place, origin_place.id == KnockMessage.origin_place_id)
             .join(User, User.id == KnockMessage.user_id)
             .where(
                 KnockMessage.place_id == place_id,
@@ -446,12 +458,15 @@ def knock_history(
                 place_id=message.place_id,
                 place_name=place.name,
                 place_display_name=place_display_name(db, place),
+                origin_place_id=message.origin_place_id,
+                origin_place_name=origin.name,
+                origin_place_display_name=place_display_name(db, origin),
                 user_id=message.user_id,
                 nickname=nickname,
                 author_rank=message.author_rank,
                 text=message.text,
                 created_at=message.created_at,
             )
-            for message, place, nickname in reversed(rows)
+            for message, place, origin, nickname in reversed(rows)
         ]
         return KnockHistoryResponse(messages=messages)

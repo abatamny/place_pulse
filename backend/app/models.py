@@ -137,6 +137,9 @@ class KnockMessage(Base):
     place_id: Mapped[int] = mapped_column(
         ForeignKey("places.id", ondelete="CASCADE"), index=True
     )
+    origin_place_id: Mapped[int] = mapped_column(
+        ForeignKey("places.id", ondelete="CASCADE"), index=True
+    )
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
@@ -153,6 +156,9 @@ class Dig(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     place_id: Mapped[int] = mapped_column(
+        ForeignKey("places.id", ondelete="CASCADE"), index=True
+    )
+    origin_place_id: Mapped[int] = mapped_column(
         ForeignKey("places.id", ondelete="CASCADE"), index=True
     )
     user_id: Mapped[int] = mapped_column(
@@ -244,6 +250,9 @@ class ForumPost(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     place_id: Mapped[int] = mapped_column(
+        ForeignKey("places.id", ondelete="CASCADE"), index=True
+    )
+    origin_place_id: Mapped[int] = mapped_column(
         ForeignKey("places.id", ondelete="CASCADE"), index=True
     )
     user_id: Mapped[int] = mapped_column(

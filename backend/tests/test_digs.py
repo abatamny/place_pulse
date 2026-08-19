@@ -45,7 +45,12 @@ def fake_media_ai() -> FakeMediaAI:
     app.dependency_overrides.pop(get_ai_adapter, None)
 
 
-def create_place(name: str, osm_id: int, locality: str | None = None) -> int:
+def create_place(
+    name: str,
+    osm_id: int,
+    locality: str | None = None,
+    parent_place_id: int | None = None,
+) -> int:
     with SessionLocal() as db:
         place = Place(
             osm_type="way",
@@ -55,6 +60,7 @@ def create_place(name: str, osm_id: int, locality: str | None = None) -> int:
             center_lat=32.0,
             center_lon=35.0,
             radius_m=75,
+            parent_place_id=parent_place_id,
         )
         db.add(place)
         db.commit()
@@ -344,3 +350,35 @@ def test_expired_dig_is_hidden_and_media_is_unavailable(
     assert feed.status_code == 200
     assert feed.json() == {"digs": []}
     assert media.status_code == 404
+
+
+def test_parent_scope_uses_deepest_origin_and_reaches_sibling_place_user(
+    client: TestClient, fake_media_ai: FakeMediaAI
+) -> None:
+    campus_id = create_place("Shared Campus", 3010, locality="Haifa")
+    north_id = create_place(
+        "North Building", 3011, parent_place_id=campus_id
+    )
+    south_id = create_place(
+        "South Building", 3012, parent_place_id=campus_id
+    )
+    author = create_present_user(
+        "0500003010", "North Author", [campus_id, north_id]
+    )
+    viewer = create_present_user(
+        "0500003011", "South Viewer", [campus_id, south_id]
+    )
+
+    uploaded = upload_image(client, author, campus_id)
+
+    assert uploaded.status_code == 201
+    dig = uploaded.json()
+    assert dig["place_id"] == campus_id
+    assert dig["origin_place_id"] == north_id
+
+    feed = client.get(
+        f"/api/digs?place_id={campus_id}", headers=auth_headers(viewer)
+    )
+    assert feed.status_code == 200
+    assert [item["id"] for item in feed.json()["digs"]] == [dig["id"]]
+    assert client.get(dig["media_url"], headers=auth_headers(viewer)).status_code == 200

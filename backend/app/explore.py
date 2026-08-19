@@ -20,6 +20,7 @@ from app.models import (
     User,
 )
 from app.place_labels import place_display_name
+from app.place_scope import content_attachment_path, place_path
 from app.places import PRESENCE_TTL
 from app.rate_limit import AuthRateLimiter
 from app.schemas import (
@@ -51,13 +52,15 @@ def create_memory_from_activity(
     place_id: int,
     now: datetime | None = None,
 ) -> int | None:
-    """Preserve one small, unpreserved DIG cluster for a place."""
+    """Preserve the deepest qualifying DIG cluster in the trigger's hierarchy."""
     now = now or utc_now()
     with SessionLocal.begin() as db:
-        if db.get(Place, place_id) is None:
+        trigger_path = place_path(db, place_id)
+        if not trigger_path:
             return None
+        root_place_id = trigger_path[-1].id
 
-        digs = list(
+        available_digs = list(
             db.scalars(
                 select(Dig)
                 .outerjoin(
@@ -65,20 +68,50 @@ def create_memory_from_activity(
                     ExploreMemoryDig.dig_id == Dig.id,
                 )
                 .where(
-                    Dig.place_id == place_id,
                     Dig.moderation_status == "approved",
                     Dig.created_at >= now - EXPLORE_ACTIVITY_WINDOW,
                     Dig.created_at <= now,
                     ExploreMemoryDig.dig_id.is_(None),
                 )
-                .order_by(Dig.created_at)
-                .limit(EXPLORE_MAX_DIGS)
+                .order_by(Dig.created_at, Dig.id)
             )
         )
-        if len(digs) < EXPLORE_CLUSTER_THRESHOLD:
+
+        groups: dict[int, list[Dig]] = {}
+        for dig in available_digs:
+            origin_path = place_path(db, dig.origin_place_id)
+            if not origin_path or origin_path[-1].id != root_place_id:
+                continue
+            attachment = content_attachment_path(
+                db, dig.origin_place_id, dig.place_id
+            )
+            for attached_place in attachment:
+                groups.setdefault(attached_place.id, []).append(dig)
+
+        qualifying: list[tuple[int, datetime, int, list[Dig]]] = []
+        for scope_place_id, grouped_digs in groups.items():
+            if len(grouped_digs) < EXPLORE_CLUSTER_THRESHOLD:
+                continue
+            ordered_digs = sorted(
+                grouped_digs,
+                key=lambda dig: (dig.created_at, dig.id),
+            )
+            depth = len(place_path(db, scope_place_id))
+            threshold_time = ordered_digs[EXPLORE_CLUSTER_THRESHOLD - 1].created_at
+            qualifying.append(
+                (depth, threshold_time, scope_place_id, ordered_digs)
+            )
+
+        if not qualifying:
             return None
 
-        memory = ExploreMemory(place_id=place_id, created_at=now)
+        qualifying.sort(
+            key=lambda group: (-group[0], group[1], group[2])
+        )
+        _, _, memory_place_id, grouped_digs = qualifying[0]
+        digs = grouped_digs[:EXPLORE_MAX_DIGS]
+
+        memory = ExploreMemory(place_id=memory_place_id, created_at=now)
         db.add(memory)
         db.flush()
         for dig in digs:

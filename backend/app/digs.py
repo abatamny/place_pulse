@@ -18,7 +18,7 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.ai import (
     AIAdapter,
@@ -33,6 +33,7 @@ from app.jobs import queue_explore_cluster_check
 from app.knock import user_is_present
 from app.models import Dig, Place, User
 from app.place_labels import place_display_name
+from app.place_scope import resolve_content_place_scope
 from app.rate_limit import AuthRateLimiter
 from app.schemas import DigFeedResponse, DigResponse
 
@@ -229,6 +230,7 @@ def dig_response(
     db: Session,
     dig: Dig,
     place: Place,
+    origin_place: Place,
     nickname: str,
 ) -> DigResponse:
     return DigResponse(
@@ -236,6 +238,9 @@ def dig_response(
         place_id=dig.place_id,
         place_name=place.name,
         place_display_name=place_display_name(db, place),
+        origin_place_id=origin_place.id,
+        origin_place_name=origin_place.name,
+        origin_place_display_name=place_display_name(db, origin_place),
         user_id=dig.user_id,
         nickname=nickname,
         media_type=dig.media_type,
@@ -265,7 +270,8 @@ async def upload_dig(
     adapter: AIAdapter = Depends(get_ai_adapter),
 ) -> DigResponse:
     upload_rate_limiter.check(request, f"dig-upload-{auth.user.id}")
-    require_place_presence(auth.user.id, place_id)
+    with SessionLocal() as db:
+        resolve_content_place_scope(db, auth.user.id, place_id)
     media_type, content_type = validate_filename(file.filename, file.content_type)
     try:
         data = await read_limited_upload(file)
@@ -300,14 +306,14 @@ async def upload_dig(
 
     try:
         with SessionLocal() as db:
-            place = db.get(Place, place_id)
-            if place is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Place not found",
-                )
+            content_places = resolve_content_place_scope(
+                db, auth.user.id, place_id
+            )
+            place = content_places.scope
+            origin_place = content_places.origin
             dig = Dig(
                 place_id=place_id,
+                origin_place_id=origin_place.id,
                 user_id=auth.user.id,
                 media_type=media_type,
                 content_type=content_type,
@@ -319,10 +325,10 @@ async def upload_dig(
                 expires_at=now + DIG_LIFETIME,
             )
             db.add(dig)
-            queue_explore_cluster_check(db, place_id, auth.user.id)
+            queue_explore_cluster_check(db, origin_place.id, auth.user.id)
             db.commit()
             db.refresh(dig)
-            return dig_response(db, dig, place, auth.user.nickname)
+            return dig_response(db, dig, place, origin_place, auth.user.nickname)
     except Exception:
         media_path.unlink(missing_ok=True)
         raise
@@ -335,9 +341,11 @@ def dig_feed(
 ) -> DigFeedResponse:
     require_place_presence(auth.user.id, place_id)
     with SessionLocal() as db:
+        origin_place = aliased(Place)
         rows = db.execute(
-            select(Dig, Place, User.nickname)
+            select(Dig, Place, origin_place, User.nickname)
             .join(Place, Place.id == Dig.place_id)
+            .join(origin_place, origin_place.id == Dig.origin_place_id)
             .join(User, User.id == Dig.user_id)
             .where(
                 Dig.place_id == place_id,
@@ -348,8 +356,8 @@ def dig_feed(
         ).all()
         return DigFeedResponse(
             digs=[
-                dig_response(db, dig, place, nickname)
-                for dig, place, nickname in rows
+                dig_response(db, dig, place, origin, nickname)
+                for dig, place, origin, nickname in rows
             ]
         )
 

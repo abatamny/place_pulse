@@ -331,3 +331,33 @@ def test_nested_message_is_sent_only_to_routed_place_layer(
     assert building_received["message"]["text"] == "Meet inside the building"
     assert campus_received["message"]["text"] == "Campus announcement"
     assert fake_ai.routing_calls == 1
+
+
+def test_nested_message_can_use_parent_scope_while_preserving_origin(
+    client: TestClient, fake_ai: FakeKnockAI
+) -> None:
+    campus_id = create_place("Shared Campus", 2510)
+    building_id = create_place(
+        "Science Building", 2511, parent_place_id=campus_id
+    )
+    sender = create_present_user(
+        "0500001510", "Building Sender", [campus_id, building_id]
+    )
+    campus_user = create_present_user(
+        "0500001511", "Campus Recipient", [campus_id]
+    )
+    fake_ai.route_place_id = campus_id
+
+    with client.websocket_connect(websocket_path(sender)) as sender_socket:
+        assert_ready(sender_socket)
+        with client.websocket_connect(websocket_path(campus_user)) as campus_socket:
+            assert_ready(campus_socket)
+            sender_socket.send_json(
+                {"type": "message", "text": "Campus event starts soon"}
+            )
+            sent = sender_socket.receive_json()["message"]
+            received = campus_socket.receive_json()["message"]
+
+    assert sent["id"] == received["id"]
+    assert sent["place_id"] == campus_id
+    assert sent["origin_place_id"] == building_id

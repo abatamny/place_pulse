@@ -57,6 +57,9 @@ type KnockMessage = {
   place_id: number;
   place_name: string;
   place_display_name: string;
+  origin_place_id: number;
+  origin_place_name: string;
+  origin_place_display_name: string;
   user_id: number;
   nickname: string;
   author_rank: "VISITOR" | "BELONG";
@@ -73,6 +76,9 @@ type Dig = {
   place_id: number;
   place_name: string;
   place_display_name: string;
+  origin_place_id: number;
+  origin_place_name: string;
+  origin_place_display_name: string;
   user_id: number;
   nickname: string;
   media_type: "image" | "video";
@@ -144,6 +150,9 @@ type ForumPost = {
   place_id: number;
   place_name: string;
   place_display_name: string;
+  origin_place_id: number;
+  origin_place_name: string;
+  origin_place_display_name: string;
   user_id: number | null;
   nickname: string;
   is_anonymous: boolean;
@@ -705,7 +714,11 @@ function KnockPanel({
               >
                 <div className="message-meta">
                   <strong>{message.nickname}</strong>
-                  <span>{message.place_display_name}</span>
+                  <span>
+                    {message.origin_place_id === message.place_id
+                      ? message.place_display_name
+                      : `${message.origin_place_display_name} · shared with ${message.place_display_name}`}
+                  </span>
                   <time dateTime={message.created_at}>
                     {new Date(message.created_at).toLocaleTimeString([], {
                       hour: "2-digit",
@@ -832,7 +845,7 @@ function DigMedia({
   }
   return (
     <img
-      alt={`DIG shared by ${dig.nickname} at ${dig.place_display_name}`}
+      alt={`DIG shared by ${dig.nickname} from ${dig.origin_place_display_name}`}
       className={`dig-media dig-media--${variant}`}
       src={source}
     />
@@ -1032,7 +1045,7 @@ function DigPanel({
         const [left, top] = positions[index % positions.length];
         return (
           <button
-            aria-label={`Open DIG by ${dig.nickname} at ${dig.place_display_name}`}
+            aria-label={`Open DIG by ${dig.nickname} from ${dig.origin_place_display_name}`}
             className="dig-map-marker"
             key={dig.id}
             onClick={() => setSelectedDig(dig)}
@@ -1096,7 +1109,7 @@ function DigPanel({
           </header>
           <form className="dig-composer" onSubmit={uploadDig}>
             <label>
-              Post to
+              Share with
               <select
                 onChange={(event) => setSelectedPlaceId(event.target.value)}
                 required
@@ -1150,7 +1163,10 @@ function DigPanel({
                 <strong>{selectedDig.nickname}</strong>
                 <DigSharedTime createdAt={selectedDig.created_at} />
               </span>
-              <span>{selectedDig.place_display_name}</span>
+              <span>{selectedDig.origin_place_display_name}</span>
+              {selectedDig.origin_place_id !== selectedDig.place_id && (
+                <small>Shared with {selectedDig.place_display_name}</small>
+              )}
             </div>
             <button
               aria-label="Close DIG"
@@ -1761,12 +1777,16 @@ function ForumPanel({
     const selectedPlace = places.find(
       (place) => String(place.id) === selectedPlaceId,
     );
+    const originPlace = places[places.length - 1] ?? selectedPlace;
     const pendingId = -Date.now();
     const pendingPost: PendingForumPost = {
       id: pendingId,
       place_id: Number(selectedPlaceId),
       place_name: selectedPlace?.name ?? "Nearby place",
       place_display_name: selectedPlace?.display_name ?? "Nearby place",
+      origin_place_id: originPlace?.id ?? Number(selectedPlaceId),
+      origin_place_name: originPlace?.name ?? "Nearby place",
+      origin_place_display_name: originPlace?.display_name ?? "Nearby place",
       user_id: isAnonymous ? null : user.id,
       nickname: isAnonymous ? "Anonymous" : user.nickname,
       is_anonymous: isAnonymous,
@@ -1827,6 +1847,20 @@ function ForumPanel({
         </div>
         <div className="forum-heading-actions">
           {mode === "place" && places.length > 0 && (
+            <label className="forum-place-picker">
+              <span>Viewing</span>
+              <select
+                aria-label="Forum place"
+                onChange={(event) => setSelectedPlaceId(event.target.value)}
+                value={selectedPlaceId}
+              >
+                {places.map((place) => (
+                  <option key={place.id} value={place.id}>{place.display_name}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {mode === "place" && places.length > 0 && (
             <button
               className="button forum-create-button"
               disabled={submitting}
@@ -1879,7 +1913,7 @@ function ForumPanel({
           </header>
           <form className="forum-composer" onSubmit={submitPost}>
             <label>
-              Forum place
+              Forum audience
               <select
                 onChange={(event) => setSelectedPlaceId(event.target.value)}
                 value={selectedPlaceId}

@@ -114,6 +114,9 @@ class KnockMessageResponse(BaseModel):
     place_id: int
     place_name: str
     place_display_name: str
+    origin_place_id: int
+    origin_place_name: str
+    origin_place_display_name: str
     user_id: int
     nickname: str
     author_rank: str
@@ -130,6 +133,9 @@ class DigResponse(BaseModel):
     place_id: int
     place_name: str
     place_display_name: str
+    origin_place_id: int
+    origin_place_name: str
+    origin_place_display_name: str
     user_id: int
     nickname: str
     media_type: str
@@ -244,6 +250,9 @@ class ForumPostResponse(BaseModel):
     place_id: int
     place_name: str
     place_display_name: str
+    origin_place_id: int
+    origin_place_name: str
+    origin_place_display_name: str
     user_id: int | None
     nickname: str
     is_anonymous: bool

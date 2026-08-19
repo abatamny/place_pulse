@@ -16,6 +16,7 @@ from app.models import (
     User,
 )
 from app.place_labels import place_display_name
+from app.place_scope import resolve_content_place_scope
 from app.places import PRESENCE_TTL
 from app.rate_limit import AuthRateLimiter
 from app.schemas import (
@@ -118,6 +119,7 @@ def post_response(
     viewer_user_id: int,
 ) -> ForumPostResponse:
     place = db.get(Place, post.place_id)
+    origin_place = db.get(Place, post.origin_place_id)
     author = db.get(User, post.user_id)
     comment_rows = db.execute(
         select(ForumComment, User.nickname)
@@ -135,6 +137,11 @@ def post_response(
         place_id=post.place_id,
         place_name=place.name if place is not None else "Unknown place",
         place_display_name=place_display_name(db, place),
+        origin_place_id=post.origin_place_id,
+        origin_place_name=(
+            origin_place.name if origin_place is not None else "Unknown place"
+        ),
+        origin_place_display_name=place_display_name(db, origin_place),
         user_id=None if post.is_anonymous else post.user_id,
         nickname=(
             "Anonymous"
@@ -207,9 +214,12 @@ async def create_post(
     )
 
     with SessionLocal.begin() as db:
-        require_place_access(db, auth.user.id, payload.place_id)
+        content_places = resolve_content_place_scope(
+            db, auth.user.id, payload.place_id
+        )
         post = ForumPost(
             place_id=payload.place_id,
+            origin_place_id=content_places.origin.id,
             user_id=auth.user.id,
             title=payload.title,
             body=payload.body,
