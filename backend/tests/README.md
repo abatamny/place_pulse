@@ -18,4 +18,4 @@ PostgreSQL during collection. Database-backed directories opt into lazy schema
 creation and per-test cleanup through their local `conftest.py` files.
 
 Run a category with `pytest -q -m <category>`, or run `pytest -q` for the full
-suite. Browser-driven Playwright E2E tests are intentionally deferred.
+suite.

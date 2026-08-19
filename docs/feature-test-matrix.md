@@ -43,8 +43,7 @@ docker compose run --build --rm backend pytest -q -m security
 docker compose run --build --rm backend pytest -q -m stress
 ```
 
-The system suite is an API-level cross-feature journey. Browser-driven
-Playwright E2E tests are intentionally left for the later E2E task.
+The system suite is an API-level cross-feature user journey.
 
 Build the frontend:
 

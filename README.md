@@ -184,9 +184,8 @@ docker compose run --build --rm backend pytest -q -m stress
 
 Tests live under matching `tests/unit`, `tests/integration`, `tests/security`,
 `tests/system`, and `tests/stress` directories. Security is also a cross-cutting
-marker on relevant unit and integration tests. Browser-driven Playwright E2E
-coverage is intentionally postponed; the current `system` suite is an API-level
-cross-feature journey.
+marker on relevant unit and integration tests. The `system` suite is an
+API-level cross-feature user journey.
 
 See the [feature-to-test matrix](docs/feature-test-matrix.md) for the complete mapping of features to unit, integration, system, security, and stress coverage.
 
