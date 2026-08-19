@@ -24,6 +24,12 @@ def create_schema() -> None:
                 "ADD COLUMN IF NOT EXISTS locality VARCHAR(200)"
             )
         )
+        connection.execute(
+            text(
+                "ALTER TABLE places ADD COLUMN IF NOT EXISTS "
+                "scope_class VARCHAR(20) NOT NULL DEFAULT 'OTHER'"
+            )
+        )
         for table_name in ("knock_messages", "digs", "forum_posts"):
             connection.execute(
                 text(

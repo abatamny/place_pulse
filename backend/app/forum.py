@@ -6,10 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.ai import (
     AIAdapter,
-    PlaceRouteOption,
     get_ai_adapter,
     moderate_before_publication,
-    route_forum_before_publication,
 )
 from app.auth import AuthContext, require_auth
 from app.database import SessionLocal
@@ -22,7 +20,11 @@ from app.models import (
     User,
 )
 from app.place_labels import place_display_name
-from app.place_scope import active_place_ids, current_content_places
+from app.place_scope import (
+    active_place_ids,
+    current_content_places,
+    resolve_content_place_scope,
+)
 from app.places import PRESENCE_TTL
 from app.rate_limit import AuthRateLimiter
 from app.schemas import (
@@ -178,17 +180,22 @@ def post_response(
 
 @forum_router.get("", response_model=ForumFeedResponse)
 def forum_feed(
+    place_id: int | None = None,
     auth: AuthContext = Depends(require_auth),
 ) -> ForumFeedResponse:
     with SessionLocal() as db:
         current_place_ids = active_place_ids(db, auth.user.id)
         if not current_place_ids:
             return ForumFeedResponse(posts=[])
+        selected_place_id = place_id
+        if selected_place_id is None:
+            selected_place_id = current_content_places(db, auth.user.id).origin.id
+        require_place_access(db, auth.user.id, selected_place_id)
         posts = list(
             db.scalars(
                 select(ForumPost)
                 .where(
-                    ForumPost.place_id.in_(current_place_ids),
+                    ForumPost.place_id == selected_place_id,
                     ForumPost.moderation_status == "approved",
                 )
                 .order_by(ForumPost.created_at.desc(), ForumPost.id.desc())
@@ -213,38 +220,23 @@ async def create_post(
 ) -> ForumPostResponse:
     forum_rate_limiter.check(request, f"forum-post-{auth.user.id}")
     with SessionLocal() as db:
-        current_places = current_content_places(db, auth.user.id)
-        route_options = [
-            PlaceRouteOption(
-                place_id=place.id,
-                name=place_display_name(db, place),
-                parent_place_id=(
-                    current_places.scopes[index - 1].id if index else None
-                ),
-            )
-            for index, place in enumerate(current_places.scopes)
-        ]
+        selected_place_id = payload.place_id
+        if selected_place_id is None:
+            selected_place_id = current_content_places(db, auth.user.id).origin.id
+        resolve_content_place_scope(db, auth.user.id, selected_place_id)
 
     post_text = f"Title: {payload.title}\n\nPost: {payload.body}"
     await require_safe_forum_text(adapter, post_text)
-    route = None
-    if len(route_options) > 1:
-        route = await route_forum_before_publication(
-            adapter, post_text, route_options
-        )
 
     with SessionLocal.begin() as db:
-        current_places = current_content_places(db, auth.user.id)
-        allowed_scopes = {
-            candidate.id: candidate for candidate in current_places.scopes
-        }
-        place = allowed_scopes.get(
-            route.place_id if route is not None else current_places.origin.id,
-            current_places.origin,
+        content_scope = resolve_content_place_scope(
+            db,
+            auth.user.id,
+            selected_place_id,
         )
         post = ForumPost(
-            place_id=place.id,
-            origin_place_id=current_places.origin.id,
+            place_id=content_scope.scope.id,
+            origin_place_id=content_scope.origin.id,
             user_id=auth.user.id,
             title=payload.title,
             body=payload.body,

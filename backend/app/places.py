@@ -71,6 +71,7 @@ def save_resolved_places(
                 osm_type=resolved.osm_type,
                 osm_id=resolved.osm_id,
                 name=resolved.name,
+                scope_class=resolved.scope_class,
                 locality=resolved.locality,
                 boundary=boundary,
                 center_lat=resolved.center_lat,
@@ -80,6 +81,7 @@ def save_resolved_places(
             db.add(place)
         else:
             place.name = resolved.name
+            place.scope_class = resolved.scope_class
             if resolved.locality is not None:
                 place.locality = resolved.locality
             place.center_lat = resolved.center_lat
@@ -210,6 +212,7 @@ def presence_response(
                 osm_type=place.osm_type,
                 osm_id=place.osm_id,
                 name=place.name,
+                scope_class=place.scope_class,
                 locality=place.locality,
                 display_name=place_display_name(db, place),
                 parent_place_id=place.parent_place_id,
@@ -321,7 +324,7 @@ def heartbeat(
     except PlaceResolutionError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenStreetMap is temporarily unavailable",
+            detail="OpenStreetMap Overpass is temporarily unavailable",
         ) from exc
 
 

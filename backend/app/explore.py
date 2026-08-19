@@ -251,6 +251,8 @@ def memory_response(
 
 @explore_router.get("", response_model=ExploreFeedResponse)
 def explore_feed(
+    place_id: int | None = None,
+    participants_only: bool = False,
     auth: AuthContext = Depends(require_auth),
 ) -> ExploreFeedResponse:
     now = utc_now()
@@ -263,16 +265,23 @@ def explore_feed(
             Presence.user_id == auth.user.id,
             Presence.last_seen_at >= cutoff,
         )
+        access_filter = (
+            ExploreMemory.id.in_(participant_memory_ids)
+            if participants_only
+            else or_(
+                ExploreMemory.id.in_(participant_memory_ids),
+                ExploreMemory.place_id.in_(present_place_ids),
+            )
+        )
+        memory_query = select(ExploreMemory).where(access_filter)
+        if place_id is not None:
+            memory_query = memory_query.where(ExploreMemory.place_id == place_id)
         memories = list(
             db.scalars(
-                select(ExploreMemory)
-                .where(
-                    or_(
-                        ExploreMemory.id.in_(participant_memory_ids),
-                        ExploreMemory.place_id.in_(present_place_ids),
-                    )
+                memory_query.order_by(
+                    ExploreMemory.created_at.desc(),
+                    ExploreMemory.id.desc(),
                 )
-                .order_by(ExploreMemory.created_at.desc(), ExploreMemory.id.desc())
             )
         )
         return ExploreFeedResponse(

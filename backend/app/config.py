@@ -19,9 +19,6 @@ class Settings:
     osm_user_agent: str = os.getenv(
         "OSM_USER_AGENT", "PlacePulse-Course-Project/0.1"
     )
-    nominatim_url: str = os.getenv(
-        "NOMINATIM_URL", "https://nominatim.openstreetmap.org"
-    ).rstrip("/")
     overpass_url: str = os.getenv(
         "OVERPASS_URL", "https://overpass-api.de/api"
     ).rstrip("/")

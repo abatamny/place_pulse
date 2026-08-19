@@ -73,6 +73,9 @@ class Place(Base):
     osm_type: Mapped[str] = mapped_column(String(10))
     osm_id: Mapped[int] = mapped_column(BigInteger)
     name: Mapped[str] = mapped_column(String(200))
+    scope_class: Mapped[str] = mapped_column(
+        String(20), default="OTHER", server_default="OTHER"
+    )
     locality: Mapped[str | None] = mapped_column(String(200), nullable=True)
     boundary: Mapped[WKBElement | None] = mapped_column(
         Geometry("GEOMETRY", srid=4326, spatial_index=True), nullable=True

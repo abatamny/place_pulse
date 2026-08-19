@@ -162,10 +162,12 @@ def upload_image(
     client: TestClient,
     identity: SessionIdentity,
     number: int,
+    place_id: int | None = None,
 ):
     return client.post(
         "/api/digs",
         headers=auth_headers(identity),
+        data={"place_id": str(place_id)} if place_id is not None else None,
         files={
             "file": (
                 f"moment-{number}.jpg",
@@ -250,7 +252,10 @@ def test_uploaded_activity_worker_creates_memory_that_outlives_digs(
         )
         db.commit()
 
-    feed = client.get("/api/explore", headers=auth_headers(participant))
+    feed = client.get(
+        "/api/explore?participants_only=true",
+        headers=auth_headers(participant),
+    )
     assert feed.status_code == 200
     assert [memory["id"] for memory in feed.json()["memories"]] == [memory_id]
     assert feed.json()["memories"][0]["participant"] is True
@@ -312,6 +317,39 @@ def test_nonparticipant_needs_current_presence_to_access_memory(
     )
 
 
+def test_feed_filters_memories_to_the_selected_scope(client: TestClient) -> None:
+    campus_id = create_place("Selected Campus", 4008)
+    building_id = create_place("Selected Building", 4009, campus_id)
+    viewer = create_user(
+        "0500004008",
+        "Scope Viewer",
+        [campus_id, building_id],
+    )
+    with SessionLocal() as db:
+        campus_memory = ExploreMemory(place_id=campus_id)
+        building_memory = ExploreMemory(place_id=building_id)
+        db.add_all([campus_memory, building_memory])
+        db.commit()
+        campus_memory_id = campus_memory.id
+        building_memory_id = building_memory.id
+
+    campus_feed = client.get(
+        f"/api/explore?place_id={campus_id}",
+        headers=auth_headers(viewer),
+    )
+    building_feed = client.get(
+        f"/api/explore?place_id={building_id}",
+        headers=auth_headers(viewer),
+    )
+
+    assert [item["id"] for item in campus_feed.json()["memories"]] == [
+        campus_memory_id
+    ]
+    assert [item["id"] for item in building_feed.json()["memories"]] == [
+        building_memory_id
+    ]
+
+
 def test_feed_describes_nested_places_and_distinct_participants(
     client: TestClient,
     fake_media_ai,
@@ -368,7 +406,10 @@ def test_participant_can_comment_like_and_unlike_after_leaving(
     assert first_like.json() == {"liked_by_me": True, "like_count": 1}
     assert repeated_like.json() == {"liked_by_me": True, "like_count": 1}
 
-    feed = client.get("/api/explore", headers=auth_headers(participant)).json()
+    feed = client.get(
+        "/api/explore?participants_only=true",
+        headers=auth_headers(participant),
+    ).json()
     assert feed["memories"][0]["comments"] == [comment.json()]
     assert feed["memories"][0]["like_count"] == 1
 
@@ -397,12 +438,10 @@ def test_moment_uses_deepest_place_shared_by_dig_attachment_paths(
     second = create_user(
         "0500004021", "Second Room", [campus_id, building_id, second_room_id]
     )
-    fake_media_ai.route_place_id = building_id
-
     uploads = [
-        upload_image(client, first, 1),
-        upload_image(client, first, 2),
-        upload_image(client, second, 3),
+        upload_image(client, first, 1, building_id),
+        upload_image(client, first, 2, building_id),
+        upload_image(client, second, 3, building_id),
     ]
     assert [response.status_code for response in uploads] == [201, 201, 201]
     assert [response.json()["origin_place_id"] for response in uploads] == [

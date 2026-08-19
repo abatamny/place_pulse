@@ -191,6 +191,32 @@ def test_cross_place_rooms_are_isolated(
     assert second_received["message"]["place_id"] == second_place
 
 
+def test_selected_knock_scope_requires_current_presence(
+    client: TestClient, fake_ai: FakeKnockAI
+) -> None:
+    current_place = create_place("Current Place", 2110)
+    unavailable_place = create_place("Unavailable Place", 2111)
+    sender = create_present_user(
+        "0500001110", "Scoped Sender", [current_place]
+    )
+
+    with client.websocket_connect(websocket_path(sender)) as websocket:
+        assert_ready(websocket)
+        websocket.send_json(
+            {
+                "type": "message",
+                "place_id": unavailable_place,
+                "text": "This must not escape the current scope",
+            }
+        )
+        rejected = websocket.receive_json()
+
+    assert rejected["type"] == "error"
+    assert rejected["code"] == "invalid_scope"
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(KnockMessage)) == 0
+
+
 def test_invalid_websocket_token_is_rejected(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:
@@ -291,7 +317,7 @@ def test_belong_message_is_immediate_and_queued_for_background_check(
     assert history.json()["messages"] == []
 
 
-def test_nested_message_is_sent_only_to_routed_place_layer(
+def test_nested_message_is_sent_only_to_selected_place_scope(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:
     campus_id = create_place("Course Campus", 2501)
@@ -307,8 +333,6 @@ def test_nested_message_is_sent_only_to_routed_place_layer(
     building_user = create_present_user(
         "0500001503", "Building User", [building_id]
     )
-    fake_ai.route_place_id = building_id
-
     with client.websocket_connect(websocket_path(sender)) as sender_socket:
         assert_ready(sender_socket)
         with client.websocket_connect(websocket_path(campus_user)) as campus_socket:
@@ -318,19 +342,27 @@ def test_nested_message_is_sent_only_to_routed_place_layer(
             ) as building_socket:
                 assert_ready(building_socket)
                 sender_socket.send_json(
-                    {"type": "message", "text": "Meet inside the building"}
+                    {
+                        "type": "message",
+                        "place_id": building_id,
+                        "text": "Meet inside the building",
+                    }
                 )
                 assert sender_socket.receive_json()["message"]["place_id"] == building_id
                 building_received = building_socket.receive_json()
 
                 campus_socket.send_json(
-                    {"type": "message", "text": "Campus announcement"}
+                    {
+                        "type": "message",
+                        "place_id": campus_id,
+                        "text": "Campus announcement",
+                    }
                 )
                 campus_received = campus_socket.receive_json()
 
     assert building_received["message"]["text"] == "Meet inside the building"
     assert campus_received["message"]["text"] == "Campus announcement"
-    assert fake_ai.routing_calls == 1
+    assert fake_ai.routing_calls == 0
 
 
 def test_nested_message_can_use_parent_scope_while_preserving_origin(
@@ -346,14 +378,16 @@ def test_nested_message_can_use_parent_scope_while_preserving_origin(
     campus_user = create_present_user(
         "0500001511", "Campus Recipient", [campus_id]
     )
-    fake_ai.route_place_id = campus_id
-
     with client.websocket_connect(websocket_path(sender)) as sender_socket:
         assert_ready(sender_socket)
         with client.websocket_connect(websocket_path(campus_user)) as campus_socket:
             assert_ready(campus_socket)
             sender_socket.send_json(
-                {"type": "message", "text": "Campus event starts soon"}
+                {
+                    "type": "message",
+                    "place_id": campus_id,
+                    "text": "Campus event starts soon",
+                }
             )
             sent = sender_socket.receive_json()["message"]
             received = campus_socket.receive_json()["message"]

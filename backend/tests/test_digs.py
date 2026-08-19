@@ -165,10 +165,12 @@ def upload_image(
     filename: str = "campus.jpg",
     content_type: str = "image/jpeg",
     data: bytes | None = None,
+    place_id: int | None = None,
 ):
     return client.post(
         "/api/digs",
         headers=auth_headers(identity),
+        data={"place_id": str(place_id)} if place_id is not None else None,
         files={"file": (filename, data or jpeg_bytes(), content_type)},
     )
 
@@ -316,7 +318,7 @@ def test_upload_requires_authentication(
     assert fake_media_ai.sample_counts == []
 
 
-def test_upload_uses_current_place_and_wrong_place_cannot_read_feed_or_media(
+def test_upload_rejects_a_selected_scope_without_current_presence(
     client: TestClient, fake_media_ai: FakeMediaAI
 ) -> None:
     first_place = create_place("North Building", 3005)
@@ -339,8 +341,7 @@ def test_upload_uses_current_place_and_wrong_place_cannot_read_feed_or_media(
     )
     denied_media = client.get(media_url, headers=auth_headers(second_user))
 
-    assert automatic_upload.status_code == 201
-    assert automatic_upload.json()["place_id"] == second_place
+    assert automatic_upload.status_code == 403
     assert denied_feed.status_code == 403
     assert denied_media.status_code == 403
 
@@ -388,8 +389,7 @@ def test_parent_scope_uses_deepest_origin_and_reaches_sibling_place_user(
         "0500003011", "South Viewer", [campus_id, south_id]
     )
 
-    fake_media_ai.route_place_id = campus_id
-    uploaded = upload_image(client, author)
+    uploaded = upload_image(client, author, place_id=campus_id)
 
     assert uploaded.status_code == 201
     dig = uploaded.json()
@@ -404,7 +404,7 @@ def test_parent_scope_uses_deepest_origin_and_reaches_sibling_place_user(
     assert client.get(dig["media_url"], headers=auth_headers(viewer)).status_code == 200
 
 
-def test_uncertain_media_scope_falls_back_to_deepest_current_place(
+def test_omitted_media_scope_falls_back_to_deepest_current_place(
     client: TestClient, fake_media_ai: FakeMediaAI
 ) -> None:
     campus_id = create_place("Fallback Campus", 3013)
@@ -412,12 +412,9 @@ def test_uncertain_media_scope_falls_back_to_deepest_current_place(
     author = create_present_user(
         "0500003012", "Fallback Author", [campus_id, room_id]
     )
-    fake_media_ai.route_place_id = campus_id
-    fake_media_ai.route_confidence = 0.4
-
     uploaded = upload_image(client, author)
 
     assert uploaded.status_code == 201
     assert uploaded.json()["place_id"] == room_id
     assert uploaded.json()["origin_place_id"] == room_id
-    assert fake_media_ai.route_calls == 1
+    assert fake_media_ai.route_calls == 0

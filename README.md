@@ -39,13 +39,12 @@ The defaults work without creating an `.env` file. To change them, copy `.env.ex
 | `TWILIO_FROM_NUMBER` | empty | Message-capable Twilio sender number in international format |
 | `SMS_TIMEOUT_SECONDS` | `8` | Maximum wait for SMS delivery acceptance |
 | `OSM_USER_AGENT` | `PlacePulse-Course-Project/0.1` | Identifies backend requests to OpenStreetMap services |
-| `NOMINATIM_URL` | public Nominatim URL | Reverse-geocoding endpoint |
 | `OVERPASS_URL` | public Overpass URL | Containing-place and boundary endpoint |
 | `AI_PROVIDER` | `openai` | AI adapter provider |
 | `AI_API_URL` | OpenAI Responses API | Structured-output endpoint |
 | `AI_API_FORMAT` | `responses` | `responses` for native OpenAI or `chat_completions` for compatible JSON-mode providers |
 | `AI_API_KEY` | empty | Provider API key; required only when an AI operation is used |
-| `AI_MODEL` | `gpt-4.1-mini` | Model used for moderation and place routing |
+| `AI_MODEL` | `gpt-4.1-mini` | Model used for moderation |
 | `AI_MODERATION_URL` | OpenAI Moderations API | Image-moderation endpoint |
 | `AI_MODERATION_MODEL` | `omni-moderation-latest` | Model used for DIG image and video-frame moderation |
 | `AI_MEDIA_MODERATION_MODE` | `moderations` | Use the moderation endpoint, or `model` to moderate media with a multimodal chat model |
@@ -106,24 +105,24 @@ Passwords are Argon2-hashed. Login creates a random, revocable session whose tok
 
 1. Log in and select **Share my location**.
 2. Allow the browser's location prompt. Localhost is treated as a secure browser context for geolocation.
-3. The backend resolves the coordinates through OpenStreetMap and displays nested places with a consistent label such as `Engineering Building · Technion Campus, Haifa`.
-4. While location sharing remains enabled, the page sends a heartbeat every 30 seconds. Each heartbeat is resolved through OpenStreetMap so a previously stored broad place cannot hide a newly returned inner place. Existing OSM objects are upserted to keep their internal place IDs stable.
+3. The backend resolves the coordinates through OpenStreetMap Overpass, classifies every useful named non-administrative enclosure, and displays the nested scopes as clickable map orbits. Administrative features supply locality context instead of becoming interaction rooms.
+4. While location sharing remains enabled, the page sends a heartbeat every 30 seconds. Each heartbeat is resolved through Overpass so a previously stored broad place cannot hide a newly returned inner place. Existing OSM objects are upserted to keep their internal place IDs stable. If Overpass is unavailable, the heartbeat fails without replacing the user's last successful place hierarchy with a less-specific reverse-geocoding result.
 
 For demos and testing, the map's **Custom location** box accepts an `https://openstreetmap.org` share URL containing either `#map=zoom/latitude/longitude` or `?mlat=...&mlon=...`. The saved override uses the same heartbeat and backend OSM resolution flow. Select **Use browser** to clear it and return to browser geolocation, which remains the default when no override is saved.
 
 Presence expires after 90 seconds without a heartbeat. A completed presence becomes a saved visit, and three completed visits at a place promote the user from `VISITOR` to `BELONG`.
 
-The same backend-generated place label is used for current presence, KNOCK, DIG, Explore, and Forum. It contains the target place, its immediate parent when present, and the OSM city/locality; missing or duplicate parts are omitted. Direct messages are not place-scoped.
+The innermost orbit is selected automatically. Clicking another orbit changes one shared active scope for KNOCK, DIG, Explore, and Forum; it does not change the user's physical presence. Scope identity comes from the stable OSM object, while `VENUE`, `BUILDING`, `OUTDOOR`, `SITE`, `DISTRICT`, and `OTHER` classes provide deterministic colors and labels. The same backend-generated place label is used across every place-scoped feature. Direct messages are not place-scoped.
 
 ## KNOCK live messages
 
-After sharing a location, the main screen connects to the authenticated KNOCK WebSocket and loads recent messages from every active place layer. Messages are routed to one matching layer, so a building KNOCK is not broadcast to unrelated places. Accepted messages are stored in PostgreSQL and return after reconnecting.
+After sharing a location, the main screen connects to the authenticated KNOCK WebSocket and loads recent messages for the selected orbit. Every message includes that exact scope, which the backend validates against current presence before storing and broadcasting it. A building KNOCK therefore stays in the building room, while a campus KNOCK reaches users currently sharing the campus scope.
 
-`VISITOR` messages are moderated before publication and fail closed if the AI provider is unavailable. `BELONG` messages appear immediately and create a PostgreSQL background job for the worker to check afterward. Set `AI_API_KEY` in `.env` to send visitor messages or route messages when OpenStreetMap returns multiple nested places.
+`VISITOR` messages are moderated before publication and fail closed if the AI provider is unavailable. `BELONG` messages appear immediately and create a PostgreSQL background job for the worker to check afterward. Set `AI_API_KEY` in `.env` to send visitor messages in a live demo.
 
 ## DIG temporary media
 
-Open the **DIG** tab after sharing your location to view or post media for any active place layer. A DIG may be a JPEG, PNG, WebP, MP4, or WebM file up to 10 MB; videos are limited to 15 seconds. Every upload is validated and moderated before it is written to the persistent media volume or listed in the feed.
+After sharing a location, the map shows DIGs from the selected orbit and the composer posts to that same exact scope. A DIG may be a JPEG, PNG, WebP, MP4, or WebM file up to 10 MB; videos are limited to 15 seconds. Every upload is validated and moderated before it is written to the persistent media volume or listed in the feed.
 
 Approved DIGs remain available to users currently at that place for 24 hours. Rejected and expired media is not shown. Videos are checked using three representative frames because the configured moderation model accepts images rather than video files directly. Set `AI_API_KEY` in `.env` to publish DIGs in a live demo; automated tests use a fake provider.
 
@@ -131,11 +130,11 @@ Approved DIGs remain available to users currently at that place for 24 hours. Re
 
 The background worker checks approved DIG activity without making another AI call. Three unpreserved DIGs posted to the same place within one hour create an Explore memory containing up to five DIGs. The memory and its selected media remain available after the original 24-hour DIG feed entries expire.
 
-Every author whose DIG was selected is a participant and can revisit that memory after leaving. Other users can view, like, and comment on it only while their location heartbeat shows that they are currently at the same place. Open the **Explore** tab to see all memories currently accessible to the signed-in user.
+Every author whose DIG was selected is a participant and can revisit that memory after leaving. Other users can view, like, and comment on it only while their location heartbeat shows that they are currently at the same place. **Explore** defaults to the selected orbit; **My memories** preserves participant access after leaving.
 
 ## Place forum and personal area
 
-Open **Forum** after sharing your location to see one combined feed of persistent posts from every active place layer you can access. When creating a post, the backend records the deepest current place as its origin and uses the text to choose an audience only from that place or its active ancestors. Posts may be anonymous, and present users can add comments or change an upvote/downvote. Post and comment text is moderated before publication and fails closed if the configured AI provider is unavailable. Forum media is intentionally omitted to keep this optional course feature small.
+Open **Forum** after sharing your location to see persistent posts from the selected orbit. New posts use that exact active scope while recording the deepest current place as their physical origin. Posts may be anonymous, and present users can add comments or change an upvote/downvote. Post and comment text is moderated before publication and fails closed if the configured AI provider is unavailable. Forum media is intentionally omitted to keep this optional course feature small.
 
 The **My posts** view remains available after leaving a place. It lists the signed-in user's posts and totals their received likes, dislikes, and net score. Anonymous posts never reveal their author in public API responses.
 
@@ -147,13 +146,11 @@ An authenticated WebSocket remains connected while the signed-in app is open. Ne
 
 ## AI moderation and worker
 
-The backend has one adapter for structured text-moderation and nested-place routing decisions. Pre-publication calls have a timeout and fail closed: invalid input, prompt-injection patterns, invalid model output, and provider failures never produce an approval.
-
-DIG and forum composers do not ask the user to select a place. Forum text and sampled DIG frames may broaden the audience from the deepest current place to one of its validated active ancestors. Media routing requires a high-confidence decision; uncertain, invalid, or unavailable routing falls back to the deepest origin without blocking otherwise approved content.
+The backend uses the AI adapter for structured text and media moderation. Pre-publication calls have a timeout and fail closed: invalid input, prompt-injection patterns, invalid model output, and provider failures never produce an approval. Audience selection is deterministic and comes only from the active orbit; AI never broadens it.
 
 Post-publication moderation is placed in the PostgreSQL `ai_jobs` table. The internal `worker` service rotates among users' oldest jobs so one busy user cannot starve everyone else, records a completed structured result or a safe failed status, and continues running after model errors.
 
-Model inputs are normalized before broader jailbreak-pattern checks, untrusted OpenStreetMap place facts and containment relationships are validated, moderation categories are restricted, and routing results must use known place IDs without contradicting an explicitly named place. Automated tests inject a deterministic fake adapter, so test runs never call or charge a real provider. For a live demo, set `AI_API_KEY` in your uncommitted `.env` file.
+Model inputs are normalized before broader jailbreak-pattern checks and moderation categories are restricted. Selected scope IDs are validated against fresh presence before publication. Automated tests inject a deterministic fake adapter, so test runs never call or charge a real provider. For a live demo, set `AI_API_KEY` in your uncommitted `.env` file.
 
 ## Automated tests
 

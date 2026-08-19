@@ -514,6 +514,12 @@ dd {
   font-weight: 700;
 }
 
+.place-chips .place-chip--selected {
+  border: 1px solid rgb(41 94 77 / 18%);
+  background: #e3eee8;
+  color: #224f41;
+}
+
 .knock-feed {
   display: flex;
   min-height: 20rem;
@@ -1663,6 +1669,15 @@ button:focus-visible {
   min-width: 0;
 }
 
+.map-place-copy em {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .map-place-label small {
   color: var(--muted);
   font-size: 0.64rem;
@@ -1704,6 +1719,105 @@ button:focus-visible {
   border-color: rgb(40 116 95 / 22%);
   background: #e6f2ec;
   color: #1f6a55;
+}
+
+.scope-orbit {
+  --orbit-color: #61718f;
+  --orbit-tint: rgb(97 113 143 / 7%);
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  padding: 0;
+  border: 2px solid var(--orbit-color);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--orbit-color);
+  cursor: pointer;
+  opacity: 0.58;
+  transform: translate(-50%, -50%);
+  transition: border-width 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+}
+
+.scope-orbit:hover,
+.scope-orbit:focus-visible,
+.scope-orbit--active {
+  border-width: 3px;
+  opacity: 1;
+}
+
+.scope-orbit:focus-visible {
+  outline: 3px solid rgb(255 255 255 / 90%);
+  outline-offset: 3px;
+}
+
+.scope-orbit--active {
+  box-shadow:
+    inset 0 0 0 100vmax var(--orbit-tint),
+    0 0 0 4px rgb(255 255 255 / 68%);
+}
+
+.scope-orbit-label {
+  position: absolute;
+  top: -0.82rem;
+  left: 50%;
+  display: flex;
+  max-width: 12rem;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.48rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: rgb(251 252 251 / 92%);
+  box-shadow: 0 0.2rem 0.7rem rgb(23 45 39 / 10%);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.scope-orbit-label b {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+}
+
+.scope-orbit-label small {
+  color: currentColor;
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.scope-orbit--venue {
+  --orbit-color: #9a4f62;
+  --orbit-tint: rgb(154 79 98 / 7%);
+}
+
+.scope-orbit--building {
+  --orbit-color: #775c9a;
+  --orbit-tint: rgb(119 92 154 / 7%);
+}
+
+.scope-orbit--outdoor {
+  --orbit-color: #26765b;
+  --orbit-tint: rgb(38 118 91 / 7%);
+}
+
+.scope-orbit--site {
+  --orbit-color: #a06a29;
+  --orbit-tint: rgb(160 106 41 / 7%);
+}
+
+.scope-orbit--district {
+  --orbit-color: #3b6f91;
+  --orbit-tint: rgb(59 111 145 / 7%);
+}
+
+.scope-orbit--other {
+  --orbit-color: #67736e;
+  --orbit-tint: rgb(103 115 110 / 6%);
+  border-style: dashed;
 }
 
 .map-user-marker {
@@ -1759,6 +1873,10 @@ button:focus-visible {
 
 .map-nearby-marker--open {
   z-index: 14;
+}
+
+.map-nearby-marker--outside-scope:not(.map-nearby-marker--open) {
+  opacity: 0.38;
 }
 
 .nearby-user-trigger {
@@ -1892,6 +2010,12 @@ button:focus-visible {
 }
 
 .nearby-user-message-button {
+  grid-column: 1 / -1;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.nearby-user-scope-button {
   grid-column: 1 / -1;
   justify-content: center;
   white-space: nowrap;

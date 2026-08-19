@@ -11,10 +11,8 @@ from sqlalchemy.orm import aliased
 
 from app.ai import (
     AIAdapter,
-    PlaceRouteOption,
     get_ai_adapter,
     moderate_before_publication,
-    route_before_publication,
 )
 from app.auth import AuthContext, InvalidSessionError, require_auth, resolve_session
 from app.database import SessionLocal
@@ -43,13 +41,6 @@ class ActivePlace:
     display_name: str
     parent_place_id: int | None
     rank: str
-
-    def route_option(self) -> PlaceRouteOption:
-        return PlaceRouteOption(
-            place_id=self.id,
-            name=self.name,
-            parent_place_id=self.parent_place_id,
-        )
 
 
 def order_active_places(places: list[ActivePlace]) -> list[ActivePlace]:
@@ -293,6 +284,7 @@ async def publish_message(
     auth: AuthContext,
     adapter: AIAdapter,
     text: str,
+    place_id: int | None,
 ) -> None:
     active_places = active_places_for_user(auth.user.id)
     if not active_places:
@@ -307,24 +299,21 @@ async def publish_message(
         connection, {place.id for place in active_places}
     )
 
-    if len(active_places) == 1:
-        target = active_places[0]
-    else:
-        route = await route_before_publication(
-            adapter,
-            text,
-            [place.route_option() for place in active_places],
+    target = (
+        active_places[-1]
+        if place_id is None
+        else next(
+            (place for place in active_places if place.id == place_id),
+            None,
         )
-        if route is None:
-            await send_error(
-                connection,
-                "routing_failed",
-                "The message could not be routed safely. Try again.",
-            )
-            return
-        target = next(
-            place for place in active_places if place.id == route.place_id
+    )
+    if target is None:
+        await send_error(
+            connection,
+            "invalid_scope",
+            "Select one of your current place scopes before sending.",
         )
+        return
 
     if target.rank == "VISITOR":
         moderation = await moderate_before_publication(adapter, text)
@@ -419,7 +408,13 @@ async def knock_websocket(
                 )
                 continue
 
-            await publish_message(connection, auth, adapter, payload.text)
+            await publish_message(
+                connection,
+                auth,
+                adapter,
+                payload.text,
+                payload.place_id,
+            )
     except WebSocketDisconnect:
         pass
     finally:

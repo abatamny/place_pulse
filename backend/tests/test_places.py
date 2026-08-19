@@ -8,7 +8,12 @@ from app.auth import utc_now
 from app.database import SessionLocal
 from app.main import app
 from app.models import Place, PlaceMembership, Presence, Visit
-from app.osm import OSMPlaceResolver, ResolvedPlace, get_place_resolver
+from app.osm import (
+    OSMPlaceResolver,
+    PlaceResolutionError,
+    ResolvedPlace,
+    get_place_resolver,
+)
 from app.places import PRESENCE_TTL, expire_stale_presences
 
 
@@ -16,9 +21,12 @@ class FakePlaceResolver:
     def __init__(self):
         self.calls = 0
         self.include_building = True
+        self.error: Exception | None = None
 
     def resolve(self, latitude: float, longitude: float) -> list[ResolvedPlace]:
         self.calls += 1
+        if self.error is not None:
+            raise self.error
         campus_key = ("way", 1001)
         places = [
             ResolvedPlace(
@@ -27,6 +35,7 @@ class FakePlaceResolver:
                 name="Course Campus",
                 center_lat=latitude,
                 center_lon=longitude,
+                scope_class="SITE",
                 locality="Haifa",
                 boundary_geojson=polygon(34.99, 31.99, 35.01, 32.01),
             ),
@@ -39,6 +48,7 @@ class FakePlaceResolver:
                     name="Engineering Building",
                     center_lat=latitude,
                     center_lon=longitude,
+                    scope_class="BUILDING",
                     locality="Haifa",
                     boundary_geojson=polygon(34.999, 31.999, 35.001, 32.001),
                     parent_key=campus_key,
@@ -126,6 +136,8 @@ def test_coordinates_resolve_each_heartbeat_and_upsert_places(
         "Engineering Building",
     ]
     campus, building = first.json()["places"]
+    assert campus["scope_class"] == "SITE"
+    assert building["scope_class"] == "BUILDING"
     assert building["parent_place_id"] == campus["id"]
     assert campus["display_name"] == "Course Campus, Haifa"
     assert (
@@ -173,6 +185,30 @@ def test_later_heartbeat_discovers_inner_place_inside_stored_broad_place(
 
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Place)) == 2
+
+
+def test_overpass_failure_keeps_the_last_successful_presence(
+    client: TestClient, fake_resolver: FakePlaceResolver
+) -> None:
+    headers = authenticated_headers(client)
+    first = heartbeat(client, headers)
+    assert first.status_code == 200
+    expected_place_ids = [place["id"] for place in first.json()["places"]]
+
+    fake_resolver.error = PlaceResolutionError("Overpass unavailable")
+    failed = heartbeat(client, headers)
+
+    assert failed.status_code == 503
+    assert (
+        failed.json()["detail"]
+        == "OpenStreetMap Overpass is temporarily unavailable"
+    )
+    current = client.get("/api/presence/current", headers=headers)
+    assert current.status_code == 200
+    assert [place["id"] for place in current.json()["places"]] == expected_place_ids
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Presence)) == 2
+        assert db.scalar(select(func.count()).select_from(Visit)) == 0
 
 
 def test_nearby_users_share_an_active_place_and_use_the_deepest_match(
@@ -295,6 +331,45 @@ def test_osm_locality_extraction_prefers_address_then_city_boundary() -> None:
             },
         ]
     ) == "Haifa"
+
+
+def test_osm_scope_classification_preserves_useful_unknown_features() -> None:
+    classify = OSMPlaceResolver._scope_class
+
+    assert classify({"boundary": "administrative"}) == "ADMIN"
+    assert classify({"amenity": "university"}) == "SITE"
+    assert classify({"building": "yes"}) == "BUILDING"
+    assert classify({"building": "yes", "amenity": "library"}) == "VENUE"
+    assert classify({"leisure": "park"}) == "OUTDOOR"
+    assert classify({"landuse": "residential"}) == "DISTRICT"
+    assert classify({"name": "Locally useful enclosure"}) == "OTHER"
+
+
+def test_osm_resolver_returns_an_empty_overpass_result_without_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolver = OSMPlaceResolver()
+    monkeypatch.setattr(
+        resolver,
+        "_resolve_with_overpass",
+        lambda latitude, longitude: [],
+    )
+
+    assert resolver.resolve(32.0, 35.0) == []
+
+
+def test_osm_resolver_reports_overpass_errors_without_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolver = OSMPlaceResolver()
+
+    def unavailable(latitude: float, longitude: float) -> list[ResolvedPlace]:
+        raise ValueError("invalid Overpass response")
+
+    monkeypatch.setattr(resolver, "_resolve_with_overpass", unavailable)
+
+    with pytest.raises(PlaceResolutionError, match="Overpass lookup failed"):
+        resolver.resolve(32.0, 35.0)
 
 
 def test_stale_presence_records_completed_visits(

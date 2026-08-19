@@ -38,7 +38,7 @@ Use this stack unless the user explicitly approves a change:
 | Database | PostgreSQL + PostGIS | One database container; PostGIS stores boundaries and supports geographic checks. |
 | Worker | Same Python backend image | Start it with a different command; use the database jobs table instead of a separate queue service. |
 | Media | Local Docker volume | Store files on disk and store metadata/safe paths in PostgreSQL. |
-| Location services | OpenStreetMap Nominatim + Overpass | Called only by the backend on every location heartbeat; persist resolved OSM objects/boundaries under stable internal IDs. |
+| Location services | OpenStreetMap Overpass | Called only by the backend on every location heartbeat; persist resolved OSM objects/boundaries under stable internal IDs. |
 | AI | One provider adapter | Use a configured external API for the core; a local LLM is optional later. |
 | Local orchestration | Docker Compose | Start the full application with one documented command. |
 
@@ -64,9 +64,11 @@ Do not replace these technologies or add an alternative framework for the same r
 ### 3. Places and presence
 
 - Resolve every browser location heartbeat to one or more named OpenStreetMap objects.
-- Store each discovered place locally with an internal `place_id`, OSM type/ID, name, locality, boundary, and optional parent place.
+- Store each discovered place locally with an internal `place_id`, OSM type/ID, name, deterministic scope class, locality, boundary, and optional parent place.
 - Upsert resolved places by their OSM type/ID so content keeps stable internal place references without using broad stored boundaries to decide later heartbeats.
 - Support nested places such as campus -> faculty -> building.
+- Keep every useful named non-administrative enclosing feature returned by Overpass. Classify scopes as `VENUE`, `BUILDING`, `OUTDOOR`, `SITE`, `DISTRICT`, or `OTHER`; administrative features provide locality context instead of interaction rooms.
+- Display the current scope hierarchy as clickable map orbits. The most-specific current scope is selected automatically, and clicking another orbit changes one shared active scope for KNOCK, DIG, Explore, and Forum without changing physical presence.
 - Format place labels consistently as `Primary place · Parent place, City`, omitting missing or duplicate parts.
 - Use heartbeats while the app is open and expire stale presence.
 - Record visits and promote repeated users from `VISITOR` to `BELONG` using a simple threshold.
@@ -76,7 +78,7 @@ Do not replace these technologies or add an alternative framework for the same r
 - Send live messages through WebSockets to users in the relevant place only.
 - Store accepted messages and provide history.
 - Moderate visitor messages before publication; BELONG messages may be checked afterward.
-- For nested places, use AI routing to choose the intended place layer.
+- For nested places, send to the exact active scope selected on the map; never broaden the audience automatically.
 
 ### 5. DIG and Explore
 
@@ -88,7 +90,7 @@ Do not replace these technologies or add an alternative framework for the same r
 
 ### 6. Moderation, AI, and jobs
 
-- Use one AI adapter for moderation and nested-place routing.
+- Use one AI adapter for moderation.
 - Use structured output, basic jailbreak protection, and stored/OpenStreetMap location facts.
 - Fail safely when the model times out or returns invalid output.
 - For core background work, a simple database jobs table and one worker are enough; no separate queue product is required.
@@ -144,6 +146,7 @@ Build the small frontend needed for each feature together with its backend. Do n
 - Create/update local place records from the returned OSM identifiers, names, locality, boundaries, and containment relationships.
 - Reuse internal place IDs by upserting OSM objects, but do not use stored boundaries as a shortcut for heartbeat resolution.
 - Support nested places and show the detected place in the UI.
+- Classify and deterministically order all useful non-administrative enclosing scopes, and show them as clickable orbits with the innermost scope selected by default.
 - Use one backend-generated `Primary place · Parent place, City` label across current presence and all place-scoped content.
 - Expire stale presence, record completed visits, and promote a user from `VISITOR` to `BELONG` after a simple visit threshold.
 - Test coordinate mapping, nested places, stale presence, visit recording, and rank promotion.
@@ -152,7 +155,7 @@ Build the small frontend needed for each feature together with its backend. Do n
 
 ### Step 4 - AI jobs used by the core features
 
-- Create one AI adapter for text moderation and nested-place message routing.
+- Create one AI adapter for text and media moderation.
 - For decisions required before publication, let the backend await an asynchronous AI call with a timeout.
 - Add one worker and a simple database jobs table only for checks that happen after publication or in the background; do not add Redis or another queue service yet.
 - Store job status, handle timeouts/invalid output, and fail safely.
@@ -164,7 +167,7 @@ Build the small frontend needed for each feature together with its backend. Do n
 ### Step 5 - KNOCK live messages
 
 - Authenticate WebSocket connections and maintain rooms for the users currently present in each place.
-- Send messages only to the place layer chosen by the routing result.
+- Send messages only to the exact active scope supplied by the client and validated against current presence.
 - Moderate `VISITOR` messages before publication; allow `BELONG` messages immediately and check them afterward.
 - Store accepted messages and return recent place history.
 - Test same-place delivery, cross-place isolation, invalid tokens, moderation rejection, reconnecting, and saved history.
@@ -174,6 +177,7 @@ Build the small frontend needed for each feature together with its backend. Do n
 ### Step 6 - DIG temporary media
 
 - Let a present user upload a small image or short video to the current place.
+- Attach each DIG to the exact active scope supplied by the client and validated against current presence.
 - Validate authentication, presence, file type, filename, and upload size before storage.
 - Save the file in the media volume and its metadata in the database.
 - Publish only approved media and give each DIG an `expires_at` time 24 hours after creation.
@@ -186,6 +190,7 @@ Build the small frontend needed for each feature together with its backend. Do n
 
 - Run a simple background rule that detects a cluster of DIG activity and preserves selected content as an Explore memory.
 - Keep Explore memories permanently even after their original DIGs expire.
+- Filter the current Explore view to the exact active scope while retaining participant access to past memories.
 - Add basic comments and likes to Explore memories.
 - Enforce the proposal's access rule: a participant may access the memory later; other users must currently be at that place.
 - Test memory creation, persistence, comments/likes, and access control.
@@ -196,7 +201,7 @@ Build the small frontend needed for each feature together with its backend. Do n
 
 - Improve the queue to prevent one spammer from starving other users.
 - Strengthen hallucination and jailbreak defenses.
-- Add the place forum, then DMs/live notifications if time remains.
+- Add the place forum using the exact active scope, then DMs/live notifications if time remains.
 - Add Azure deployment only after the local version and tests are reliable.
 
 Each optional feature must receive its own essential tests before starting another optional feature.

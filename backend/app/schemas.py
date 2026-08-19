@@ -75,6 +75,9 @@ class CurrentPlaceResponse(BaseModel):
     osm_type: str
     osm_id: int
     name: str
+    scope_class: Literal[
+        "VENUE", "BUILDING", "OUTDOOR", "SITE", "DISTRICT", "OTHER"
+    ]
     locality: str | None
     display_name: str
     parent_place_id: int | None
@@ -98,6 +101,7 @@ class PresenceResponse(BaseModel):
 
 class KnockSendPayload(BaseModel):
     type: Literal["message"]
+    place_id: int | None = Field(default=None, gt=0)
     text: str = Field(min_length=1, max_length=500)
 
     @field_validator("text")
@@ -207,6 +211,7 @@ class ExploreLikeResponse(BaseModel):
 
 
 class ForumPostCreate(BaseModel):
+    place_id: int | None = Field(default=None, gt=0)
     title: str = Field(min_length=1, max_length=120)
     body: str = Field(min_length=1, max_length=1800)
     is_anonymous: bool = False

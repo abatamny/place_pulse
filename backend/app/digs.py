@@ -9,6 +9,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     HTTPException,
     Request,
     UploadFile,
@@ -22,10 +23,8 @@ from sqlalchemy.orm import Session, aliased
 from app.ai import (
     AIAdapter,
     ImageModerationInput,
-    PlaceRouteOption,
     get_ai_adapter,
     moderate_media_before_publication,
-    route_media_before_publication,
 )
 from app.auth import AuthContext, require_auth
 from app.config import settings
@@ -34,7 +33,7 @@ from app.jobs import queue_explore_cluster_check
 from app.knock import user_is_present
 from app.models import Dig, Place, User
 from app.place_labels import place_display_name
-from app.place_scope import current_content_places
+from app.place_scope import current_content_places, resolve_content_place_scope
 from app.rate_limit import AuthRateLimiter
 from app.schemas import DigFeedResponse, DigResponse
 
@@ -266,22 +265,16 @@ def require_place_presence(user_id: int, place_id: int) -> None:
 async def upload_dig(
     request: Request,
     file: Annotated[UploadFile, File()],
+    place_id: Annotated[int | None, Form()] = None,
     auth: AuthContext = Depends(require_auth),
     adapter: AIAdapter = Depends(get_ai_adapter),
 ) -> DigResponse:
     upload_rate_limiter.check(request, f"dig-upload-{auth.user.id}")
     with SessionLocal() as db:
-        current_places = current_content_places(db, auth.user.id)
-        route_options = [
-            PlaceRouteOption(
-                place_id=place.id,
-                name=place_display_name(db, place),
-                parent_place_id=(
-                    current_places.scopes[index - 1].id if index else None
-                ),
-            )
-            for index, place in enumerate(current_places.scopes)
-        ]
+        selected_place_id = place_id
+        if selected_place_id is None:
+            selected_place_id = current_content_places(db, auth.user.id).origin.id
+        resolve_content_place_scope(db, auth.user.id, selected_place_id)
     media_type, content_type = validate_filename(file.filename, file.content_type)
     try:
         data = await read_limited_upload(file)
@@ -305,12 +298,6 @@ async def upload_dig(
             detail="This media cannot be published",
         )
 
-    route = None
-    if len(route_options) > 1:
-        route = await route_media_before_publication(
-            adapter, samples, route_options
-        )
-
     original_filename = file.filename or "upload"
     extension = Path(original_filename).suffix.lower()
     storage_name = f"{secrets.token_hex(20)}{extension}"
@@ -322,15 +309,13 @@ async def upload_dig(
 
     try:
         with SessionLocal() as db:
-            current_places = current_content_places(db, auth.user.id)
-            origin_place = current_places.origin
-            allowed_scopes = {
-                candidate.id: candidate for candidate in current_places.scopes
-            }
-            place = allowed_scopes.get(
-                route.place_id if route is not None else origin_place.id,
-                origin_place,
+            content_scope = resolve_content_place_scope(
+                db,
+                auth.user.id,
+                selected_place_id,
             )
+            origin_place = content_scope.origin
+            place = content_scope.scope
             dig = Dig(
                 place_id=place.id,
                 origin_place_id=origin_place.id,

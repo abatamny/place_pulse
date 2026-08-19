@@ -17,6 +17,7 @@ class ResolvedPlace:
     name: str
     center_lat: float
     center_lon: float
+    scope_class: str = "OTHER"
     locality: str | None = None
     boundary_geojson: dict[str, Any] | None = None
     radius_m: float = 75.0
@@ -29,31 +30,12 @@ class ResolvedPlace:
 
 class OSMPlaceResolver:
     def resolve(self, latitude: float, longitude: float) -> list[ResolvedPlace]:
-        overpass_error: Exception | None = None
+        # Overpass is authoritative for the complete enclosing-place set. A
+        # single reverse-geocoding result must not replace that hierarchy.
         try:
-            overpass_places = self._resolve_with_overpass(latitude, longitude)
-            if overpass_places:
-                if not any(place.locality for place in overpass_places):
-                    try:
-                        fallback = self._resolve_with_nominatim(latitude, longitude)
-                    except (httpx.HTTPError, ValueError, KeyError):
-                        fallback = None
-                    if fallback is not None and fallback.locality:
-                        overpass_places = [
-                            replace(place, locality=fallback.locality)
-                            for place in overpass_places
-                        ]
-                return overpass_places
+            return self._resolve_with_overpass(latitude, longitude)
         except (httpx.HTTPError, ValueError, KeyError) as exc:
-            overpass_error = exc
-
-        try:
-            fallback = self._resolve_with_nominatim(latitude, longitude)
-            return [fallback] if fallback else []
-        except (httpx.HTTPError, ValueError, KeyError) as exc:
-            raise PlaceResolutionError("OpenStreetMap lookup failed") from (
-                overpass_error or exc
-            )
+            raise PlaceResolutionError("OpenStreetMap Overpass lookup failed") from exc
 
     def _client(self) -> httpx.Client:
         return httpx.Client(
@@ -82,11 +64,12 @@ class OSMPlaceResolver:
             elements = response.json().get("elements", [])
 
         locality = self._locality_from_elements(elements)
-        candidates: list[tuple[float, ResolvedPlace]] = []
+        candidates: list[tuple[float, str, int, ResolvedPlace]] = []
         seen: set[tuple[str, int]] = set()
         for element in elements:
             tags = element.get("tags", {})
-            if not self._is_relevant_physical_place(tags):
+            scope_class = self._scope_class(tags)
+            if scope_class == "ADMIN":
                 continue
 
             osm_type = "relation" if element.get("type") == "relation" else "way"
@@ -112,71 +95,35 @@ class OSMPlaceResolver:
             candidates.append(
                 (
                     area,
+                    osm_type,
+                    osm_id,
                     ResolvedPlace(
                         osm_type=osm_type,
                         osm_id=osm_id,
                         name=str(tags["name"])[:200],
                         center_lat=center_lat,
                         center_lon=center_lon,
+                        scope_class=scope_class,
                         locality=locality,
                         boundary_geojson=boundary,
                     ),
                 )
             )
 
-        # The query point is inside every returned area. Ordering from the
-        # largest to the smallest gives a simple campus -> building hierarchy.
-        ordered = [place for _, place in sorted(candidates, key=lambda item: -item[0])]
-        ordered = ordered[-6:]
+        # The query point is inside every returned area. Area gives the broad to
+        # specific order, while OSM identity makes equal-area ordering stable.
+        ordered = [
+            place
+            for _, _, _, place in sorted(
+                candidates,
+                key=lambda item: (-item[0], item[1], item[2]),
+            )
+        ]
         nested: list[ResolvedPlace] = []
         for place in ordered:
             parent_key = nested[-1].key if nested else None
             nested.append(replace(place, parent_key=parent_key))
         return nested
-
-    def _resolve_with_nominatim(
-        self, latitude: float, longitude: float
-    ) -> ResolvedPlace | None:
-        with self._client() as client:
-            response = client.get(
-                f"{settings.nominatim_url}/reverse",
-                params={
-                    "lat": latitude,
-                    "lon": longitude,
-                    "format": "jsonv2",
-                    "polygon_geojson": 1,
-                    "addressdetails": 1,
-                    "zoom": 18,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        if "osm_type" not in data or "osm_id" not in data:
-            return None
-        name = data.get("name") or str(data.get("display_name", "")).split(",")[0]
-        if not name:
-            return None
-
-        center_lat = float(data.get("lat", latitude))
-        center_lon = float(data.get("lon", longitude))
-        locality = self._locality_from_address(data.get("address", {}))
-        geojson = data.get("geojson")
-        boundary = (
-            geojson
-            if isinstance(geojson, dict)
-            and geojson.get("type") in {"Polygon", "MultiPolygon"}
-            else None
-        )
-        return ResolvedPlace(
-            osm_type=str(data["osm_type"]),
-            osm_id=int(data["osm_id"]),
-            name=str(name)[:200],
-            center_lat=center_lat,
-            center_lon=center_lon,
-            locality=locality,
-            boundary_geojson=boundary,
-        )
 
     @staticmethod
     def _locality_from_address(address: Any) -> str | None:
@@ -223,16 +170,16 @@ class OSMPlaceResolver:
         return None
 
     @staticmethod
-    def _is_relevant_physical_place(tags: dict[str, Any]) -> bool:
+    def _scope_class(tags: dict[str, Any]) -> str:
         if tags.get("boundary") == "administrative":
-            return False
-        if any(
+            return "ADMIN"
+
+        building = tags.get("building") not in (None, "no")
+        functional = any(
             tags.get(key)
             for key in (
-                "building",
                 "amenity",
                 "tourism",
-                "leisure",
                 "shop",
                 "office",
                 "healthcare",
@@ -240,14 +187,28 @@ class OSMPlaceResolver:
                 "aeroway",
                 "railway",
             )
+        )
+        if (
+            tags.get("type") == "site"
+            or tags.get("amenity")
+            in {"university", "college", "school", "hospital"}
+        ) and not building:
+            return "SITE"
+        if building and functional:
+            return "VENUE"
+        if building:
+            return "BUILDING"
+        if (
+            tags.get("leisure")
+            or tags.get("natural")
+            or tags.get("place") == "square"
         ):
-            return True
-        return tags.get("landuse") in {
-            "education",
-            "institutional",
-            "retail",
-            "commercial",
-        } or tags.get("type") == "site"
+            return "OUTDOOR"
+        if functional:
+            return "VENUE"
+        if tags.get("landuse") or tags.get("place") or tags.get("boundary"):
+            return "DISTRICT"
+        return "OTHER"
 
     @staticmethod
     def _element_bounds(element: dict[str, Any]) -> tuple[float, float, float, float] | None:

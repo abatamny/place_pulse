@@ -27,7 +27,6 @@ services:
       TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
       SMS_TIMEOUT_SECONDS: ${SMS_TIMEOUT_SECONDS:-8}
       OSM_USER_AGENT: ${OSM_USER_AGENT:-PlacePulse-Course-Project/0.1}
-      NOMINATIM_URL: ${NOMINATIM_URL:-https://nominatim.openstreetmap.org}
       OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api}
       AI_PROVIDER: ${AI_PROVIDER:-openai}
       AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1/responses}

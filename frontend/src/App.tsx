@@ -32,6 +32,7 @@ type CurrentPlace = {
   osm_type: string;
   osm_id: number;
   name: string;
+  scope_class: "VENUE" | "BUILDING" | "OUTDOOR" | "SITE" | "DISTRICT" | "OTHER";
   locality: string | null;
   display_name: string;
   parent_place_id: number | null;
@@ -695,10 +696,12 @@ function KnockPanel({
   token,
   user,
   places,
+  activeScope,
 }: {
   token: string;
   user: User;
   places: CurrentPlace[];
+  activeScope: CurrentPlace | null;
 }) {
   const socketRef = useRef<WebSocket | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
@@ -717,13 +720,14 @@ function KnockPanel({
   }, [messages.length, pendingMessages.length]);
 
   useEffect(() => {
-    if (!places.length) {
+    if (!activeScope) {
       setMessages([]);
       setPendingMessages([]);
       setConnection("waiting");
       setError("");
       return;
     }
+    const selectedScopeId = activeScope.id;
 
     let active = true;
     let reconnectTimer: number | undefined;
@@ -731,22 +735,15 @@ function KnockPanel({
     setPendingMessages([]);
     setError("");
 
-    Promise.all(
-      places.map((place) =>
-        apiRequest<KnockHistoryResponse>(
-          `/api/knock/history?place_id=${place.id}`,
-          {},
-          token,
-        ),
-      ),
+    apiRequest<KnockHistoryResponse>(
+      `/api/knock/history?place_id=${selectedScopeId}`,
+      {},
+      token,
     )
-      .then((histories) => {
+      .then((history) => {
         if (active) {
-          const historyMessages = histories.flatMap(
-            (history) => history.messages,
-          );
           setMessages((current) =>
-            mergeMessages([...historyMessages, ...current]),
+            mergeMessages([...history.messages, ...current]),
           );
         }
       })
@@ -776,6 +773,9 @@ function KnockPanel({
           setError("");
         } else if (payload.type === "message") {
           const incoming = payload.message as KnockMessage;
+          if (incoming.place_id !== selectedScopeId) {
+            return;
+          }
           setMessages((current) =>
             mergeMessages([...current, incoming]),
           );
@@ -823,7 +823,7 @@ function KnockPanel({
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [token, placeKey]);
+  }, [token, placeKey, activeScope?.id, user.id]);
 
   function sendKnock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -835,7 +835,13 @@ function KnockPanel({
       setError("KNOCK is reconnecting. Try again in a moment.");
       return;
     }
-    socketRef.current.send(JSON.stringify({ type: "message", text }));
+    if (!activeScope) {
+      setError("Select a current place scope before sending.");
+      return;
+    }
+    socketRef.current.send(
+      JSON.stringify({ type: "message", place_id: activeScope.id, text }),
+    );
     setPendingMessages((current) => [
       ...current,
       {
@@ -847,20 +853,12 @@ function KnockPanel({
     setDraft("");
   }
 
-  const routingOnly =
-    places.length > 1 && places.every((place) => place.rank === "BELONG");
-  const pendingStatus = routingOnly
-    ? "Routing"
-    : places.length === 1 && places[0].rank === "BELONG"
-      ? "Sending"
-      : "Checking";
-  const pendingExplanation = routingOnly
-    ? "Choosing the right place. Visible only to you."
-    : places.length === 1 && places[0].rank === "BELONG"
-      ? "Waiting for server confirmation. Visible only to you."
-      : "Routing and safety checks may be in progress. Visible only to you.";
+  const pendingStatus = activeScope?.rank === "BELONG" ? "Sending" : "Checking";
+  const pendingExplanation = activeScope?.rank === "BELONG"
+    ? "Waiting for server confirmation. Visible only to you."
+    : "Safety checks may be in progress. Visible only to you.";
 
-  if (!places.length) {
+  if (!activeScope) {
     return (
       <section className="knock-card knock-empty">
         <span className="knock-icon" aria-hidden="true"><Icon name="messages" size={28} /></span>
@@ -882,10 +880,8 @@ function KnockPanel({
         </span>
       </header>
 
-      <div className="place-chips" aria-label="Active place layers">
-        {places.map((place) => (
-          <span key={place.id}>{place.display_name}</span>
-        ))}
+      <div className="place-chips" aria-label="Selected KNOCK scope">
+        <span className="place-chip--selected">Scope: {activeScope.display_name}</span>
       </div>
 
       <div className="knock-feed" aria-live="polite" ref={feedRef}>
@@ -1069,10 +1065,10 @@ function DigSharedTime({ createdAt }: { createdAt: string }) {
 
 function DigPanel({
   token,
-  places,
+  activeScope,
 }: {
   token: string;
-  places: CurrentPlace[];
+  activeScope: CurrentPlace | null;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [digs, setDigs] = useState<Dig[]>([]);
@@ -1084,38 +1080,27 @@ function DigPanel({
   const [selectedFilename, setSelectedFilename] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const placeKey = places.map((place) => place.id).join(",");
 
   useEffect(() => {
-    if (!places.length) {
+    setSelectedDig(null);
+    setNotice("");
+    if (!activeScope) {
       setDigs([]);
       return;
     }
 
     let active = true;
     setError("");
-    Promise.all(
-      places.map((place) =>
-        apiRequest<DigFeedResponse>(
-          `/api/digs?place_id=${place.id}`,
-          {},
-          token,
-        ),
-      ),
+    apiRequest<DigFeedResponse>(
+      `/api/digs?place_id=${activeScope.id}`,
+      {},
+      token,
     )
-      .then((feeds) => {
+      .then((feed) => {
         if (!active) {
           return;
         }
-        const unique = new Map<number, Dig>();
-        feeds.flatMap((feed) => feed.digs).forEach((dig) => unique.set(dig.id, dig));
-        setDigs(
-          [...unique.values()].sort(
-            (left, right) =>
-              new Date(right.created_at).getTime() -
-              new Date(left.created_at).getTime(),
-          ),
-        );
+        setDigs(feed.digs);
       })
       .catch((caught) => {
         if (active) {
@@ -1125,11 +1110,15 @@ function DigPanel({
     return () => {
       active = false;
     };
-  }, [placeKey, places, refreshNumber, token]);
+  }, [activeScope?.id, refreshNumber, token]);
 
   async function uploadDig(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const selectedFile = inputRef.current?.files?.[0];
+    if (!activeScope) {
+      setError("Select a current place scope before uploading.");
+      return;
+    }
     if (!selectedFile) {
       setError("Choose a media file.");
       return;
@@ -1142,19 +1131,19 @@ function DigPanel({
     setUploading(true);
     setError("");
     setNotice("");
-    const originPlace = places[places.length - 1];
     const previewUrl = URL.createObjectURL(selectedFile);
     setPendingDig({
       id: -Date.now(),
       nickname: "You",
-      place_name: originPlace?.name ?? "Nearby place",
-      place_display_name: originPlace?.display_name ?? "Nearby place",
+      place_name: activeScope.name,
+      place_display_name: activeScope.display_name,
       media_type: selectedFile.type.startsWith("video/") ? "video" : "image",
       preview_url: previewUrl,
     });
     setComposerOpen(false);
     const form = new FormData();
     form.set("file", selectedFile);
+    form.set("place_id", String(activeScope.id));
     try {
       const published = await apiRequest<Dig>(
         "/api/digs",
@@ -1180,7 +1169,7 @@ function DigPanel({
     }
   }
 
-  if (!places.length) {
+  if (!activeScope) {
     return null;
   }
 
@@ -1287,7 +1276,7 @@ function DigPanel({
           </header>
           <form className="dig-composer" onSubmit={uploadDig}>
             <small>
-              The audience is chosen automatically from your current place hierarchy.
+              Posting to {activeScope.display_name}. Change it by clicking another orbit.
             </small>
             <label className="dig-file-field">
               Image or short video
@@ -1612,21 +1601,30 @@ function ExploreMemoryCard({
 
 function ExplorePanel({
   token,
-  places,
+  activeScope,
 }: {
   token: string;
-  places: CurrentPlace[];
+  activeScope: CurrentPlace | null;
 }) {
+  const [mode, setMode] = useState<"scope" | "mine">("scope");
   const [memories, setMemories] = useState<ExploreMemory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const placeKey = places.map((place) => place.id).join(",");
+  const showingMine = mode === "mine" || !activeScope;
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError("");
-    apiRequest<ExploreFeedResponse>("/api/explore", {}, token)
+    const feedUrl =
+      !showingMine && activeScope
+        ? `/api/explore?place_id=${activeScope.id}`
+        : "/api/explore?participants_only=true";
+    apiRequest<ExploreFeedResponse>(
+      feedUrl,
+      {},
+      token,
+    )
       .then((response) => {
         if (active) {
           setMemories(response.memories);
@@ -1645,7 +1643,7 @@ function ExplorePanel({
     return () => {
       active = false;
     };
-  }, [placeKey, token]);
+  }, [showingMine, activeScope?.id, token]);
 
   function updateMemory(updated: ExploreMemory) {
     setMemories((current) =>
@@ -1660,8 +1658,30 @@ function ExplorePanel({
           <p className="eyebrow">Long-term place memory</p>
           <h2>Explore</h2>
         </div>
-        <span className="memory-permanent">Permanent</span>
+        <div className="forum-mode-tabs">
+          <button
+            className={!showingMine ? "active" : ""}
+            disabled={!activeScope}
+            onClick={() => setMode("scope")}
+            type="button"
+          >
+            Scope
+          </button>
+          <button
+            className={showingMine ? "active" : ""}
+            onClick={() => setMode("mine")}
+            type="button"
+          >
+            My memories
+          </button>
+        </div>
       </header>
+
+      {!showingMine && activeScope && (
+        <div className="place-chips" aria-label="Selected Explore scope">
+          <span className="place-chip--selected">Scope: {activeScope.display_name}</span>
+        </div>
+      )}
 
       {error && <p className="knock-error">{error}</p>}
       <div className="explore-feed" aria-live="polite">
@@ -1669,8 +1689,8 @@ function ExplorePanel({
           <div className="feed-empty"><p>Loading memories...</p></div>
         ) : memories.length === 0 ? (
           <div className="feed-empty">
-            <p>No accessible memories yet.</p>
-            <span>Three nearby DIGs within an hour can create one.</span>
+            <p>{showingMine ? "You have no saved memories yet." : "No memories in this scope yet."}</p>
+            <span>Three DIGs within an hour can create one.</span>
           </div>
         ) : (
           memories.map((memory) => (
@@ -1853,11 +1873,11 @@ function ForumPostCard({
 
 function ForumPanel({
   token,
-  places,
+  activeScope,
   user,
 }: {
   token: string;
-  places: CurrentPlace[];
+  activeScope: CurrentPlace | null;
   user: User;
 }) {
   const [mode, setMode] = useState<"place" | "mine">("place");
@@ -1870,12 +1890,11 @@ function ForumPanel({
   const [pendingPosts, setPendingPosts] = useState<PendingForumPost[]>([]);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const placeKey = places.map((place) => place.id).join(",");
 
   useEffect(() => {
     let active = true;
     setError("");
-    if (mode === "place" && !places.length) {
+    if (mode === "place" && !activeScope) {
       setPosts([]);
       setPersonal(null);
       setLoading(false);
@@ -1897,7 +1916,7 @@ function ForumPanel({
           }
         } else {
           const response = await apiRequest<ForumFeedResponse>(
-            "/api/forum",
+            `/api/forum?place_id=${activeScope?.id}`,
             {},
             token,
           );
@@ -1920,7 +1939,7 @@ function ForumPanel({
     return () => {
       active = false;
     };
-  }, [mode, placeKey, places.length, refreshNumber, token]);
+  }, [mode, activeScope?.id, refreshNumber, token]);
 
   async function submitPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1929,16 +1948,19 @@ function ForumPanel({
     const title = String(form.get("title") || "");
     const body = String(form.get("body") || "");
     const isAnonymous = form.get("anonymous") === "on";
-    const originPlace = places[places.length - 1];
+    if (!activeScope) {
+      setError("Select a current place scope before posting.");
+      return;
+    }
     const pendingId = -Date.now();
     const pendingPost: PendingForumPost = {
       id: pendingId,
-      place_id: originPlace?.id ?? 0,
-      place_name: originPlace?.name ?? "Nearby place",
-      place_display_name: originPlace?.display_name ?? "Nearby place",
-      origin_place_id: originPlace?.id ?? 0,
-      origin_place_name: originPlace?.name ?? "Nearby place",
-      origin_place_display_name: originPlace?.display_name ?? "Nearby place",
+      place_id: activeScope.id,
+      place_name: activeScope.name,
+      place_display_name: activeScope.display_name,
+      origin_place_id: activeScope.id,
+      origin_place_name: activeScope.name,
+      origin_place_display_name: activeScope.display_name,
       user_id: isAnonymous ? null : user.id,
       nickname: isAnonymous ? "Anonymous" : user.nickname,
       is_anonymous: isAnonymous,
@@ -1964,6 +1986,7 @@ function ForumPanel({
         {
           method: "POST",
           body: JSON.stringify({
+            place_id: activeScope.id,
             title,
             body,
             is_anonymous: isAnonymous,
@@ -1995,7 +2018,7 @@ function ForumPanel({
           <h2>Forum</h2>
         </div>
         <div className="forum-heading-actions">
-          {mode === "place" && places.length > 0 && (
+          {mode === "place" && activeScope && (
             <button
               className="button forum-create-button"
               disabled={submitting}
@@ -2025,7 +2048,7 @@ function ForumPanel({
         </div>
       </header>
 
-      {composerOpen && mode === "place" && places.length > 0 && (
+      {composerOpen && mode === "place" && activeScope && (
         <section
           aria-label="Create forum post"
           aria-modal="true"
@@ -2048,7 +2071,7 @@ function ForumPanel({
           </header>
           <form className="forum-composer" onSubmit={submitPost}>
             <small>
-              The audience is chosen automatically from your current place hierarchy.
+              Posting to {activeScope.display_name}. Change it by clicking another orbit.
             </small>
             <label>
               Title
@@ -2071,10 +2094,16 @@ function ForumPanel({
         </section>
       )}
 
-      {mode === "place" && places.length === 0 && (
+      {mode === "place" && !activeScope && (
         <div className="forum-location-empty">
           <strong>Share your location to open a place forum.</strong>
           <span>Your own posts remain available under My posts.</span>
+        </div>
+      )}
+
+      {mode === "place" && activeScope && (
+        <div className="place-chips" aria-label="Selected forum scope">
+          <span className="place-chip--selected">Scope: {activeScope.display_name}</span>
         </div>
       )}
 
@@ -2561,12 +2590,31 @@ function MapTexture() {
   );
 }
 
-function nearbyMarkerPosition(userId: number) {
-  const angle = (((userId * 137.508) % 360) * Math.PI) / 180;
-  const radius = 21 + (userId % 3) * 6;
+function scopeClassLabel(scopeClass: CurrentPlace["scope_class"]) {
+  return scopeClass.charAt(0) + scopeClass.slice(1).toLowerCase();
+}
+
+function orbitDimensions(placeIndex: number, placeCount: number) {
+  const broadness =
+    placeCount === 1
+      ? 0.45
+      : (placeCount - 1 - placeIndex) / Math.max(1, placeCount - 1);
   return {
-    left: 50 + Math.cos(angle) * radius,
-    top: 50 + Math.sin(angle) * radius * 0.72,
+    width: 36 + broadness * 48,
+    height: 28 + broadness * 44,
+  };
+}
+
+function nearbyMarkerPosition(
+  userId: number,
+  placeIndex: number,
+  placeCount: number,
+) {
+  const angle = (((userId * 137.508) % 360) * Math.PI) / 180;
+  const orbit = orbitDimensions(Math.max(0, placeIndex), placeCount);
+  return {
+    left: 50 + Math.cos(angle) * (orbit.width / 2),
+    top: 50 + Math.sin(angle) * (orbit.height / 2),
   };
 }
 
@@ -2580,6 +2628,7 @@ function SignedInApp({
   onLogout: () => void;
 }) {
   const [places, setPlaces] = useState<CurrentPlace[]>([]);
+  const [activeScopeId, setActiveScopeId] = useState<number | null>(null);
   const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
   const [selectedNearbyUser, setSelectedNearbyUser] = useState<NearbyUser | null>(null);
   const [dmChatRequest, setDmChatRequest] = useState<DMChatRequest | null>(null);
@@ -2591,6 +2640,16 @@ function SignedInApp({
   const [dmSocketStatus, setDmSocketStatus] = useState<
     "connecting" | "connected" | "disconnected"
   >("connecting");
+  const placeKey = places.map((place) => place.id).join(",");
+
+  useEffect(() => {
+    setActiveScopeId((current) => {
+      if (current !== null && places.some((place) => place.id === current)) {
+        return current;
+      }
+      return places.at(-1)?.id ?? null;
+    });
+  }, [placeKey]);
 
   useEffect(() => {
     if (
@@ -2674,6 +2733,11 @@ function SignedInApp({
   }, [token, user.id]);
 
   const primaryPlace = places.at(-1);
+  const activeScope =
+    places.find((place) => place.id === activeScopeId) ?? null;
+  const activeScopeIndex = activeScope
+    ? places.findIndex((place) => place.id === activeScope.id)
+    : -1;
 
   return (
     <main className="map-app-shell">
@@ -2682,7 +2746,7 @@ function SignedInApp({
           <span className="brand-mark" aria-hidden="true"><Icon name="compass" size={22} /></span>
           <span>
             <strong>PlacePulse</strong>
-            <small>{primaryPlace ? primaryPlace.display_name : "Your nearby place"}</small>
+            <small>{activeScope ? activeScope.display_name : "Your nearby place"}</small>
           </span>
         </div>
 
@@ -2750,18 +2814,50 @@ function SignedInApp({
             <div className="map-place-label">
               <Icon name="locate" size={16} />
               <span className="map-place-copy">
-                <small>Nearby now</small>
-                <strong>{primaryPlace?.display_name ?? "Location not shared"}</strong>
+                <small>
+                  {activeScope
+                    ? `Active ${scopeClassLabel(activeScope.scope_class)} scope`
+                    : "Nearby now"}
+                </small>
+                <strong>{activeScope?.display_name ?? "Location not shared"}</strong>
+                {primaryPlace && activeScope?.id !== primaryPlace.id && (
+                  <em>Physically at {primaryPlace.name}</em>
+                )}
               </span>
-              {primaryPlace && (
+              {activeScope && (
                 <span
-                  aria-label={`Place status: ${primaryPlace.rank}`}
-                  className={`map-place-rank map-place-rank--${primaryPlace.rank.toLowerCase()}`}
+                  aria-label={`Place status: ${activeScope.rank}`}
+                  className={`map-place-rank map-place-rank--${activeScope.rank.toLowerCase()}`}
                 >
-                  {primaryPlace.rank}
+                  {activeScope.rank}
                 </span>
               )}
             </div>
+
+            {places.map((place, index) => {
+              const dimensions = orbitDimensions(index, places.length);
+              const selected = place.id === activeScope?.id;
+              return (
+                <button
+                  aria-label={`Use ${place.display_name} as the active scope`}
+                  aria-pressed={selected}
+                  className={`scope-orbit scope-orbit--${place.scope_class.toLowerCase()} ${selected ? "scope-orbit--active" : ""}`}
+                  key={place.id}
+                  onClick={() => setActiveScopeId(place.id)}
+                  style={{
+                    height: `${dimensions.height}%`,
+                    width: `${dimensions.width}%`,
+                  }}
+                  title={`Switch KNOCK, DIG, Explore, and Forum to ${place.display_name}`}
+                  type="button"
+                >
+                  <span className="scope-orbit-label">
+                    <b>{place.name}</b>
+                    <small>{scopeClassLabel(place.scope_class)}</small>
+                  </span>
+                </button>
+              );
+            })}
 
             {places.length > 0 ? (
               <div className="map-user-marker" aria-label="Your position">
@@ -2778,8 +2874,17 @@ function SignedInApp({
             )}
 
             {nearbyUsers.map((nearbyUser) => {
-              const position = nearbyMarkerPosition(nearbyUser.id);
+              const sharedScopeIndex = places.findIndex(
+                (place) => place.id === nearbyUser.shared_place_id,
+              );
+              const position = nearbyMarkerPosition(
+                nearbyUser.id,
+                sharedScopeIndex,
+                places.length,
+              );
               const isSelected = selectedNearbyUser?.id === nearbyUser.id;
+              const isInActiveScope =
+                activeScopeIndex === -1 || sharedScopeIndex >= activeScopeIndex;
               const cardAlignment =
                 position.left < 35
                   ? "nearby-user-card--align-left"
@@ -2788,7 +2893,7 @@ function SignedInApp({
                     : "";
               return (
                 <div
-                  className={`map-nearby-marker map-nearby-marker--${nearbyUser.id % 4} ${isSelected ? "map-nearby-marker--open" : ""}`}
+                  className={`map-nearby-marker map-nearby-marker--${nearbyUser.id % 4} ${isSelected ? "map-nearby-marker--open" : ""} ${isInActiveScope ? "" : "map-nearby-marker--outside-scope"}`}
                   key={nearbyUser.id}
                   style={{ left: `${position.left}%`, top: `${position.top}%` }}
                 >
@@ -2831,6 +2936,18 @@ function SignedInApp({
                         <Icon name="messages" size={16} />
                         Send direct message
                       </button>
+                      {nearbyUser.shared_place_id !== activeScope?.id && (
+                        <button
+                          className="button button--secondary nearby-user-scope-button"
+                          onClick={() => {
+                            setActiveScopeId(nearbyUser.shared_place_id);
+                            setSelectedNearbyUser(null);
+                          }}
+                          type="button"
+                        >
+                          Use closest shared scope
+                        </button>
+                      )}
                     </section>
                   )}
                 </div>
@@ -2845,7 +2962,7 @@ function SignedInApp({
                 token={token}
               />
             </div>
-            <DigPanel places={places} token={token} />
+            <DigPanel activeScope={activeScope} token={token} />
 
             {activeOverlay && (
               <section className={`map-overlay map-overlay--${activeOverlay}`}>
@@ -2858,9 +2975,9 @@ function SignedInApp({
                   <Icon name="x" />
                 </button>
                 {activeOverlay === "explore" ? (
-                  <ExplorePanel places={places} token={token} />
+                  <ExplorePanel activeScope={activeScope} token={token} />
                 ) : (
-                  <ForumPanel places={places} token={token} user={user} />
+                  <ForumPanel activeScope={activeScope} token={token} user={user} />
                 )}
               </section>
             )}
@@ -2868,7 +2985,12 @@ function SignedInApp({
         </section>
 
         <aside className="knock-column" aria-label="Live nearby conversation">
-          <KnockPanel places={places} token={token} user={user} />
+          <KnockPanel
+            activeScope={activeScope}
+            places={places}
+            token={token}
+            user={user}
+          />
         </aside>
       </div>
 
