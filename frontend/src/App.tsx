@@ -727,6 +727,9 @@ function KnockPanel({
 
     let active = true;
     let reconnectTimer: number | undefined;
+    setMessages([]);
+    setPendingMessages([]);
+    setError("");
 
     Promise.all(
       places.map((place) =>
