@@ -1,5 +1,6 @@
 import {
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -295,6 +296,23 @@ function updateDMConversations(
 }
 
 const TOKEN_KEY = "placepulse-session";
+
+function submitTextOnEnter(
+  event: ReactKeyboardEvent<HTMLTextAreaElement>,
+  disabled = false,
+) {
+  if (
+    event.key !== "Enter" ||
+    event.shiftKey ||
+    event.nativeEvent.isComposing
+  ) {
+    return;
+  }
+  event.preventDefault();
+  if (!disabled) {
+    event.currentTarget.form?.requestSubmit();
+  }
+}
 
 async function apiRequest<T>(
   path: string,
@@ -761,6 +779,7 @@ function KnockPanel({
           id="knock-message"
           maxLength={500}
           onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={submitTextOnEnter}
           placeholder="What is happening here?"
           rows={3}
           value={draft}
@@ -2378,6 +2397,7 @@ function DMPanel({
                 <textarea
                   maxLength={1000}
                   onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={(event) => submitTextOnEnter(event, sending)}
                   placeholder={`Message ${selectedUser.nickname}`}
                   rows={2}
                   value={draft}
