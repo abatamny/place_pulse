@@ -2479,10 +2479,18 @@ function SignedInApp({
             <MapTexture />
             <div className="map-place-label">
               <Icon name="locate" size={16} />
-              <span>
+              <span className="map-place-copy">
                 <small>Nearby now</small>
                 <strong>{primaryPlace?.name ?? "Location not shared"}</strong>
               </span>
+              {primaryPlace && (
+                <span
+                  aria-label={`Place status: ${primaryPlace.rank}`}
+                  className={`map-place-rank map-place-rank--${primaryPlace.rank.toLowerCase()}`}
+                >
+                  {primaryPlace.rank}
+                </span>
+              )}
             </div>
 
             {places.length > 0 ? (

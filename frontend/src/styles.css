@@ -1613,8 +1613,9 @@ button:focus-visible {
   backdrop-filter: blur(12px);
 }
 
-.map-place-label > span {
+.map-place-copy {
   display: grid;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -1630,6 +1631,35 @@ button:focus-visible {
   font-size: 0.82rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.map-place-rank {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid rgb(72 91 83 / 18%);
+  border-radius: 999px;
+  background: #edf2ef;
+  color: #52645d;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.map-place-rank::before {
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.map-place-rank--belong {
+  border-color: rgb(40 116 95 / 22%);
+  background: #e6f2ec;
+  color: #1f6a55;
 }
 
 .map-user-marker {
