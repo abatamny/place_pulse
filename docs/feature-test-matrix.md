@@ -11,7 +11,7 @@ This list connects each implemented feature to its main automated evidence. Exte
 | Strict malformed-input handling and backend-wide request-body cap | `tests/unit/test_request_protection.py`, `tests/unit/test_schemas.py`, `tests/security/test_security_boundaries.py` | Unit/security |
 | Coordinate validation, per-heartbeat OSM resolution, locality extraction, stable place upserts, later nested-place discovery, canonical labels | `tests/unit/test_osm.py`, `tests/integration/test_places.py`, place-scoped integration tests | Unit/integration |
 | Presence expiry, saved visits, VISITOR-to-BELONG promotion | `tests/integration/test_places.py` | Integration |
-| Structured AI moderation, compatible API format, timeouts, fail-closed behavior | `tests/unit/test_ai.py`, `tests/integration/test_ai_worker.py` | Unit/integration |
+| Structured local-AI adapter, model-output parsing, safety-category mapping, compatible external API format, timeouts, fail-closed behavior | `backend/tests/unit/test_ai.py`, `local_ai/tests/test_inference.py`, `backend/tests/integration/test_ai_worker.py` | Unit/integration |
 | Prompt-injection and invalid AI-output rejection | security-marked tests in `tests/unit/test_ai.py` and feature integration files | Security |
 | Nested-place routing and hierarchy validation | `tests/unit/test_ai.py`, `tests/integration/test_knock.py` | Unit/integration |
 | Fair PostgreSQL AI job scheduling and worker failure handling | `tests/integration/test_jobs.py`, `tests/integration/test_ai_worker.py` | Integration |

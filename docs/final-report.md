@@ -8,7 +8,7 @@
 
 ## Project summary
 
-PlacePulse is a mobile-friendly location-based community application. A verified user shares browser coordinates, the backend resolves nearby physical places through OpenStreetMap, and the user can interact with content scoped to those places. The implementation follows the course architecture: React and Nginx, one FastAPI backend, one background worker, and PostgreSQL/PostGIS, all run through Docker Compose.
+PlacePulse is a mobile-friendly location-based community application. A verified user shares browser coordinates, the backend resolves nearby physical places through OpenStreetMap, and the user can interact with content scoped to those places. The implementation follows the course architecture: React and Nginx, one FastAPI backend, one background worker, one internal local-AI service, and PostgreSQL/PostGIS, all run through Docker Compose.
 
 ## Implemented features
 
@@ -19,14 +19,14 @@ PlacePulse is a mobile-friendly location-based community application. A verified
 - Explore memories produced from DIG activity, persistent participant access, current-place access, likes, and comments.
 - Persistent place forums with moderated posts/comments, public anonymity, voting, and a personal post/score view.
 - Private one-to-one messages with user search, saved history, unread state, and WebSocket notifications.
-- OpenAI and OpenAI-compatible structured AI adapters, including the configured `qwen3.7-plus` path, plus a fair durable PostgreSQL worker queue.
+- Local text moderation with `Qwen3Guard-Gen-0.6B`, constrained routing with `Qwen3-0.6B`, image moderation with `image-safety-classifier-s`, and a fair durable PostgreSQL worker queue. External adapters remain optional fallbacks.
 - Optional single-VM Azure deployment helper using the same Compose architecture.
 
 ## Architecture and important decisions
 
-Only Nginx is published to the host. The backend, worker, and PostGIS database remain on the internal Compose network. PostgreSQL stores application data and AI jobs; a named volume stores approved media. This keeps the system understandable and deployable for a course project without adding a broker, cache, API gateway, or orchestration platform.
+Only Nginx is published to the host. The backend, worker, local-AI service, and PostGIS database remain on the internal Compose network. PostgreSQL stores application data and AI jobs; named volumes store approved media and downloaded model weights. This keeps the system understandable and deployable for a course project without adding a broker, cache, API gateway, or orchestration platform.
 
-External OpenStreetMap and AI services are behind small adapters. Tests replace both with deterministic fakes, so CI does not require network access, API credentials, or paid requests. Pre-publication AI decisions fail closed. BELONG KNOCK messages publish immediately and are checked by the background worker afterward.
+OpenStreetMap and local inference are behind small adapters. Tests replace both with deterministic fakes or mocked transport, so CI does not require model downloads, API credentials, or paid requests. Pre-publication AI decisions fail closed. BELONG KNOCK messages publish immediately and are checked by the background worker afterward.
 
 ## Testing and results
 
@@ -44,6 +44,6 @@ The system test performs registration, verification, login, location heartbeat, 
 
 ## Limitations and future work
 
-The project is designed for one backend process and one VM. Browser geolocation can be spoofed, rate limiting is in memory, direct messages are not end-to-end encrypted, and local volumes are not automatically backed up. Live place heartbeats depend on public OpenStreetMap availability, while AI-moderated publication depends on the configured provider. These constraints and proportionate production improvements are detailed in [risk-assessment.md](risk-assessment.md).
+The project is designed for one backend process and one VM. Browser geolocation can be spoofed, rate limiting is in memory, direct messages are not end-to-end encrypted, and local volumes are not automatically backed up. Live place heartbeats depend on public OpenStreetMap availability, while AI-moderated publication depends on sufficient local inference resources and the image classifier covers only SFW/NSFW/NSFL categories. These constraints and proportionate production improvements are detailed in [risk-assessment.md](risk-assessment.md).
 
 Azure provisioning remains a manual billable operation. After that one-time setup, the optional GitHub Actions job uses OIDC and Azure VM Run Command to deploy the exact successful `main` commit automatically. The demonstration video is a submission artifact and must be recorded and linked after the final UI walkthrough.

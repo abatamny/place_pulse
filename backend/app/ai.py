@@ -29,6 +29,7 @@ ALLOWED_MODERATION_CATEGORIES = {
     "illicit_violent",
     "illegal_activity",
     "other",
+    "pii",
     "prompt_injection",
     "self_harm",
     "self_harm_instructions",
@@ -626,8 +627,107 @@ class OpenAIAdapter:
         return content
 
 
+class LocalAIAdapter:
+    """Adapter for the Docker-internal PlacePulse local inference service."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        request_timeout: float,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.request_timeout = request_timeout
+        self.transport = transport
+
+    async def moderate_text(self, text: str) -> ModerationDecision:
+        response = await self._post_json("/v1/moderate/text", {"text": text})
+        return self._validate(response, ModerationDecision)
+
+    async def moderate_images(
+        self, images: Sequence[ImageModerationInput]
+    ) -> ModerationDecision:
+        if not images:
+            raise AIInputError("At least one image is required for moderation")
+        response = await self._post_json(
+            "/v1/moderate/images",
+            {
+                "images": [
+                    {
+                        "content_type": image.content_type,
+                        "data_base64": base64.b64encode(image.data).decode("ascii"),
+                    }
+                    for image in images
+                ]
+            },
+        )
+        return self._validate(response, ModerationDecision)
+
+    async def route_message(
+        self, text: str, places: Sequence[PlaceRouteOption]
+    ) -> RoutingDecision:
+        return await self._route_text(text, places, "message")
+
+    async def route_forum_post(
+        self, text: str, places: Sequence[PlaceRouteOption]
+    ) -> RoutingDecision:
+        return await self._route_text(text, places, "forum")
+
+    async def _route_text(
+        self, text: str, places: Sequence[PlaceRouteOption], mode: str
+    ) -> RoutingDecision:
+        response = await self._post_json(
+            "/v1/route/text",
+            {
+                "text": text,
+                "places": [place.model_dump() for place in places],
+                "mode": mode,
+            },
+        )
+        return self._validate(response, RoutingDecision)
+
+    async def route_media(
+        self,
+        images: Sequence[ImageModerationInput],
+        places: Sequence[PlaceRouteOption],
+    ) -> MediaRoutingDecision:
+        raise AIProviderError(
+            "The configured local models do not support semantic media routing"
+        )
+
+    async def _post_json(self, path: str, request_body: dict) -> object:
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.request_timeout, transport=self.transport
+            ) as client:
+                response = await client.post(
+                    f"{self.base_url}{path}",
+                    headers={"Content-Type": "application/json"},
+                    json=request_body,
+                )
+                response.raise_for_status()
+                return response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise AIProviderError("Local AI service request failed") from exc
+
+    @staticmethod
+    def _validate(
+        response: object, response_model: type[DecisionModel]
+    ) -> DecisionModel:
+        try:
+            return response_model.model_validate(response)
+        except ValidationError as exc:
+            raise AIOutputError("Local AI service returned invalid output") from exc
+
+
 def create_ai_adapter() -> AIAdapter:
     provider = settings.ai_provider.lower().replace("_", "-")
+    if provider == "local":
+        return LocalAIAdapter(
+            base_url=settings.ai_local_url,
+            request_timeout=settings.ai_timeout_seconds,
+        )
     if provider not in {"openai", "openai-compatible"}:
         raise AIProviderError(f"Unsupported AI provider: {settings.ai_provider}")
     return OpenAIAdapter(

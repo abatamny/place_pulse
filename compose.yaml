@@ -14,6 +14,31 @@ services:
       retries: 10
     restart: unless-stopped
 
+  local-ai:
+    build:
+      context: ./local_ai
+    environment:
+      TEXT_SAFETY_MODEL_ID: ${TEXT_SAFETY_MODEL_ID:-Qwen/Qwen3Guard-Gen-0.6B}
+      ROUTER_MODEL_ID: ${ROUTER_MODEL_ID:-Qwen/Qwen3-0.6B}
+      IMAGE_SAFETY_MODEL_ID: ${IMAGE_SAFETY_MODEL_ID:-OwenElliott/image-safety-classifier-s}
+      LOCAL_AI_DEVICE: ${LOCAL_AI_DEVICE:-auto}
+      LOCAL_AI_MAX_CONCURRENT_INFERENCES: ${LOCAL_AI_MAX_CONCURRENT_INFERENCES:-1}
+      IMAGE_UNSAFE_THRESHOLD: ${IMAGE_UNSAFE_THRESHOLD:-0.5}
+      HF_HOME: /models/huggingface
+    volumes:
+      - ai_models:/models
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8081/health', timeout=5)"
+      start_period: 120s
+      interval: 10s
+      timeout: 6s
+      retries: 60
+    restart: unless-stopped
+
   backend:
     image: placepulse-backend
     build:
@@ -28,7 +53,8 @@ services:
       SMS_TIMEOUT_SECONDS: ${SMS_TIMEOUT_SECONDS:-8}
       OSM_USER_AGENT: ${OSM_USER_AGENT:-PlacePulse-Course-Project/0.1}
       OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api}
-      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      AI_LOCAL_URL: ${AI_LOCAL_URL:-http://local-ai:8081}
       AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1/responses}
       AI_API_FORMAT: ${AI_API_FORMAT:-responses}
       AI_API_KEY: ${AI_API_KEY:-}
@@ -36,7 +62,7 @@ services:
       AI_MODERATION_URL: ${AI_MODERATION_URL:-https://api.openai.com/v1/moderations}
       AI_MODERATION_MODEL: ${AI_MODERATION_MODEL:-omni-moderation-latest}
       AI_MEDIA_MODERATION_MODE: ${AI_MEDIA_MODERATION_MODE:-moderations}
-      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-8}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-30}
       MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-11534336}
       MAX_CONCURRENT_HTTP_REQUESTS: ${MAX_CONCURRENT_HTTP_REQUESTS:-50}
       MAX_WEBSOCKET_CONNECTIONS: ${MAX_WEBSOCKET_CONNECTIONS:-100}
@@ -67,7 +93,8 @@ services:
     command: ["python", "-m", "app.worker"]
     environment:
       APP_ENV: ${APP_ENV:-development}
-      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      AI_LOCAL_URL: ${AI_LOCAL_URL:-http://local-ai:8081}
       AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1/responses}
       AI_API_FORMAT: ${AI_API_FORMAT:-responses}
       AI_API_KEY: ${AI_API_KEY:-}
@@ -75,7 +102,7 @@ services:
       AI_MODERATION_URL: ${AI_MODERATION_URL:-https://api.openai.com/v1/moderations}
       AI_MODERATION_MODEL: ${AI_MODERATION_MODEL:-omni-moderation-latest}
       AI_MEDIA_MODERATION_MODE: ${AI_MEDIA_MODERATION_MODE:-moderations}
-      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-8}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-30}
       DB_HOST: db
       DB_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-placepulse}
@@ -100,3 +127,4 @@ services:
 volumes:
   postgres_data:
   media_data:
+  ai_models:

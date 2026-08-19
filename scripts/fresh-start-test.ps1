@@ -34,7 +34,7 @@ $healthUrl = "http://localhost:$Port/api/health"
 
 try {
     Write-Host "Starting isolated Docker project '$projectName' on port $Port..."
-    & docker compose --project-name $projectName up --build -d
+    & docker compose --project-name $projectName up --build -d db backend worker web
     Assert-LastExitCode 'Fresh Docker Compose startup'
 
     $ready = $false

@@ -1,0 +1,1 @@
+"""PlacePulse local inference service."""

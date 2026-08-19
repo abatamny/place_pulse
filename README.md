@@ -9,6 +9,7 @@ PlacePulse is a mobile-first course project for interacting with people and cont
 ## Requirements
 
 - Docker Desktop, or Docker Engine with Docker Compose v2
+- Several GB of free disk and memory for the three local models
 
 No local Node.js, Python, PostgreSQL, or PostGIS installation is required.
 
@@ -22,7 +23,7 @@ docker compose up --build -d
 
 Open <http://localhost:8080>. The backend health endpoint is available through the public web service at <http://localhost:8080/api/health>.
 
-This one command builds the React frontend and FastAPI backend, starts PostGIS, creates the application schema automatically, starts the background worker, and starts Nginx. Only Nginx is exposed on the host; the backend, worker, and database remain on the internal Compose network.
+This one command builds the React frontend, FastAPI backend, and local AI service; starts PostGIS; creates the application schema automatically; starts the background worker; and starts Nginx. The first start downloads the configured Hugging Face model weights into the persistent `ai_models` volume, so local moderation may take several minutes to become ready. Only Nginx is exposed on the host; the backend, worker, database, and local AI service remain on the internal Compose network.
 
 ## Configuration
 
@@ -40,7 +41,14 @@ The defaults work without creating an `.env` file. To change them, copy `.env.ex
 | `SMS_TIMEOUT_SECONDS` | `8` | Maximum wait for SMS delivery acceptance |
 | `OSM_USER_AGENT` | `PlacePulse-Course-Project/0.1` | Identifies backend requests to OpenStreetMap services |
 | `OVERPASS_URL` | public Overpass URL | Containing-place and boundary endpoint |
-| `AI_PROVIDER` | `openai` | AI adapter provider |
+| `AI_PROVIDER` | `local` | Use the internal local service; `openai` and `openai-compatible` remain available as fallbacks |
+| `AI_LOCAL_URL` | `http://local-ai:8081` | Docker-internal inference service URL |
+| `TEXT_SAFETY_MODEL_ID` | `Qwen/Qwen3Guard-Gen-0.6B` | Local text-safety model |
+| `ROUTER_MODEL_ID` | `Qwen/Qwen3-0.6B` | Local semantic text-routing model |
+| `IMAGE_SAFETY_MODEL_ID` | `OwenElliott/image-safety-classifier-s` | Local NSFW/NSFL image classifier |
+| `LOCAL_AI_DEVICE` | `auto` | Select CPU automatically in the default image |
+| `LOCAL_AI_MAX_CONCURRENT_INFERENCES` | `1` | Bounds concurrent model executions and memory spikes |
+| `IMAGE_UNSAFE_THRESHOLD` | `0.5` | Reject an NSFW or NSFL class at or above this probability |
 | `AI_API_URL` | OpenAI Responses API | Structured-output endpoint |
 | `AI_API_FORMAT` | `responses` | `responses` for native OpenAI or `chat_completions` for compatible JSON-mode providers |
 | `AI_API_KEY` | empty | Provider API key; required only when an AI operation is used |
@@ -48,7 +56,7 @@ The defaults work without creating an `.env` file. To change them, copy `.env.ex
 | `AI_MODERATION_URL` | OpenAI Moderations API | Image-moderation endpoint |
 | `AI_MODERATION_MODEL` | `omni-moderation-latest` | Model used for DIG image and video-frame moderation |
 | `AI_MEDIA_MODERATION_MODE` | `moderations` | Use the moderation endpoint, or `model` to moderate media with a multimodal chat model |
-| `AI_TIMEOUT_SECONDS` | `8` | Maximum wait for a model decision |
+| `AI_TIMEOUT_SECONDS` | `30` | Maximum wait for a local or external model decision |
 | `MAX_REQUEST_BODY_BYTES` | `11534336` (11 MiB) | Backend-wide request cap, including multipart overhead for a 10 MiB DIG |
 | `MAX_CONCURRENT_HTTP_REQUESTS` | `50` | Per-backend in-flight HTTP admission limit |
 | `MAX_WEBSOCKET_CONNECTIONS` | `100` | Per-backend WebSocket admission limit |
@@ -93,7 +101,7 @@ AI_MEDIA_MODERATION_MODE=model
 AI_TIMEOUT_SECONDS=20
 ```
 
-In compatible mode, text decisions and DIG image/video-frame checks use validated JSON returned by the configured model. Native OpenAI remains the default and continues to use strict Responses schemas plus the Moderations API.
+In compatible mode, text decisions and DIG image/video-frame checks use validated JSON returned by the configured model. This is an optional fallback; the default path is the internal local service.
 
 On PowerShell, a two-column Alibaba credential export can be imported without printing the key:
 
@@ -127,13 +135,13 @@ The innermost orbit is selected automatically. Clicking another orbit changes on
 
 After sharing a location, the main screen connects to the authenticated KNOCK WebSocket and loads recent messages for the selected orbit. Every message includes that exact scope, which the backend validates against current presence before storing and broadcasting it. A building KNOCK therefore stays in the building room, while a campus KNOCK reaches users currently sharing the campus scope.
 
-`VISITOR` messages are moderated before publication and fail closed if the AI provider is unavailable. `BELONG` messages appear immediately and create a PostgreSQL background job for the worker to check afterward. Set `AI_API_KEY` in `.env` to send visitor messages in a live demo.
+`VISITOR` messages are moderated before publication and fail closed if local inference is unavailable. `BELONG` messages appear immediately and create a PostgreSQL background job for the worker to check afterward.
 
 ## DIG temporary media
 
 After sharing a location, the map shows DIGs from the selected orbit and the composer posts to that same exact scope. A DIG may be a JPEG, PNG, WebP, MP4, or WebM file up to 10 MB; videos are limited to 15 seconds. Every upload is validated and moderated before it is written to the persistent media volume or listed in the feed.
 
-Approved DIGs remain available to users currently at that place for 24 hours. Rejected and expired media is not shown. Videos are checked using three representative frames because the configured moderation model accepts images rather than video files directly. Set `AI_API_KEY` in `.env` to publish DIGs in a live demo; automated tests use a fake provider.
+Approved DIGs remain available to users currently at that place for 24 hours. Rejected and expired media is not shown. Videos are checked using three representative frames because the local safety classifier accepts images rather than video files directly. Automated tests use a fake provider and never download or invoke model weights.
 
 ## Explore place memories
 
@@ -155,11 +163,13 @@ An authenticated WebSocket remains connected while the signed-in app is open. Ne
 
 ## AI moderation and worker
 
-The backend uses the AI adapter for structured text and media moderation. Pre-publication calls have a timeout and fail closed: invalid input, prompt-injection patterns, invalid model output, and provider failures never produce an approval. Audience selection is deterministic and comes only from the active orbit; AI never broadens it.
+The backend uses one AI adapter backed by the internal `local-ai` service. `Qwen3Guard-Gen-0.6B` moderates text, `Qwen3-0.6B` performs constrained semantic text routing, and `image-safety-classifier-s` classifies uploaded images and sampled video frames as SFW, NSFW, or NSFL. Pre-publication calls have a timeout and fail closed: invalid input, prompt-injection patterns, invalid model output, and inference failures never produce an approval. Audience selection is constrained to validated active orbits; AI can never invent a scope ID.
 
 Post-publication moderation is placed in the PostgreSQL `ai_jobs` table. The internal `worker` service rotates among users' oldest jobs so one busy user cannot starve everyone else, records a completed structured result or a safe failed status, and continues running after model errors.
 
-Model inputs are normalized before broader jailbreak-pattern checks and moderation categories are restricted. Selected scope IDs are validated against fresh presence before publication. Automated tests inject a deterministic fake adapter, so test runs never call or charge a real provider. For a live demo, set `AI_API_KEY` in your uncommitted `.env` file.
+The local service exposes only `/health`, `/v1/moderate/text`, `/v1/moderate/images`, and `/v1/route/text` on the Compose network. It loads each model once, serializes inference by default, validates generated decisions, and keeps its model cache in a named volume. The selected image model is not a vision-language router, so media scope routing safely falls back to the application-selected deepest scope.
+
+Model inputs are normalized before broader jailbreak-pattern checks and moderation categories are restricted. Selected scope IDs are validated against fresh presence before publication. Automated tests inject deterministic fakes or mocked HTTP transport, so test runs never call external services or load the real models.
 
 ## Automated tests
 
