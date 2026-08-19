@@ -9,7 +9,13 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import delete, func, select
 
-from app.ai import ImageModerationInput, ModerationDecision, get_ai_adapter
+from app.ai import (
+    ImageModerationInput,
+    MediaRoutingDecision,
+    ModerationDecision,
+    PlaceRouteOption,
+    get_ai_adapter,
+)
 from app.auth import hash_session_token
 from app.config import settings
 from app.database import SessionLocal
@@ -39,6 +45,9 @@ class SessionIdentity:
 
 
 class FakeMediaAI:
+    def __init__(self) -> None:
+        self.route_place_id: int | None = None
+
     async def moderate_images(
         self, images: list[ImageModerationInput]
     ) -> ModerationDecision:
@@ -49,11 +58,23 @@ class FakeMediaAI:
             categories=[],
         )
 
+    async def route_media(
+        self,
+        images: list[ImageModerationInput],
+        places: list[PlaceRouteOption],
+    ) -> MediaRoutingDecision:
+        return MediaRoutingDecision(
+            place_id=self.route_place_id or places[-1].place_id,
+            reason="The media matches this audience",
+            confidence=0.95,
+        )
+
 
 @pytest.fixture
 def fake_media_ai():
-    app.dependency_overrides[get_ai_adapter] = lambda: FakeMediaAI()
-    yield
+    adapter = FakeMediaAI()
+    app.dependency_overrides[get_ai_adapter] = lambda: adapter
+    yield adapter
     app.dependency_overrides.pop(get_ai_adapter, None)
 
 
@@ -140,13 +161,11 @@ def jpeg_bytes(color: tuple[int, int, int]) -> bytes:
 def upload_image(
     client: TestClient,
     identity: SessionIdentity,
-    place_id: int,
     number: int,
 ):
     return client.post(
         "/api/digs",
         headers=auth_headers(identity),
-        data={"place_id": str(place_id)},
         files={
             "file": (
                 f"moment-{number}.jpg",
@@ -206,7 +225,7 @@ def test_uploaded_activity_worker_creates_memory_that_outlives_digs(
     participant = create_user("0500004001", "Participant", place_id)
 
     uploads = [
-        upload_image(client, participant, place_id, number)
+        upload_image(client, participant, number)
         for number in range(1, 4)
     ]
     assert [response.status_code for response in uploads] == [201, 201, 201]
@@ -305,9 +324,9 @@ def test_feed_describes_nested_places_and_distinct_participants(
     second = create_user("0500004011", "Second Witness", building_id)
 
     uploads = [
-        upload_image(client, first, building_id, 1),
-        upload_image(client, first, building_id, 2),
-        upload_image(client, second, building_id, 3),
+        upload_image(client, first, 1),
+        upload_image(client, first, 2),
+        upload_image(client, second, 3),
     ]
     assert [response.status_code for response in uploads] == [201, 201, 201]
     assert asyncio.run(process_next_job()) is True
@@ -378,11 +397,12 @@ def test_moment_uses_deepest_place_shared_by_dig_attachment_paths(
     second = create_user(
         "0500004021", "Second Room", [campus_id, building_id, second_room_id]
     )
+    fake_media_ai.route_place_id = building_id
 
     uploads = [
-        upload_image(client, first, building_id, 1),
-        upload_image(client, first, building_id, 2),
-        upload_image(client, second, building_id, 3),
+        upload_image(client, first, 1),
+        upload_image(client, first, 2),
+        upload_image(client, second, 3),
     ]
     assert [response.status_code for response in uploads] == [201, 201, 201]
     assert [response.json()["origin_place_id"] for response in uploads] == [
@@ -414,9 +434,9 @@ def test_local_dig_scopes_do_not_create_a_broader_moment(
     )
 
     uploads = [
-        upload_image(client, first, first_room_id, 1),
-        upload_image(client, first, first_room_id, 2),
-        upload_image(client, second, second_room_id, 3),
+        upload_image(client, first, 1),
+        upload_image(client, first, 2),
+        upload_image(client, second, 3),
     ]
     assert [response.status_code for response in uploads] == [201, 201, 201]
     for _ in uploads:

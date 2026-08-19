@@ -9,7 +9,13 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import func, select
 
-from app.ai import ImageModerationInput, ModerationDecision, get_ai_adapter
+from app.ai import (
+    ImageModerationInput,
+    MediaRoutingDecision,
+    ModerationDecision,
+    PlaceRouteOption,
+    get_ai_adapter,
+)
 from app.auth import hash_session_token
 from app.config import settings
 from app.database import SessionLocal
@@ -31,10 +37,25 @@ class FakeMediaAI:
             categories=[],
         )
         self.sample_counts: list[int] = []
+        self.route_place_id: int | None = None
+        self.route_confidence = 0.95
+        self.route_calls = 0
 
     async def moderate_images(self, images: list[ImageModerationInput]) -> object:
         self.sample_counts.append(len(images))
         return self.decision
+
+    async def route_media(
+        self,
+        images: list[ImageModerationInput],
+        places: list[PlaceRouteOption],
+    ) -> object:
+        self.route_calls += 1
+        return MediaRoutingDecision(
+            place_id=self.route_place_id or places[-1].place_id,
+            reason="The media matches this audience",
+            confidence=self.route_confidence,
+        )
 
 
 @pytest.fixture
@@ -140,7 +161,6 @@ def mp4_bytes(frame_count: int = 10) -> bytes:
 def upload_image(
     client: TestClient,
     identity: SessionIdentity,
-    place_id: int,
     *,
     filename: str = "campus.jpg",
     content_type: str = "image/jpeg",
@@ -149,7 +169,6 @@ def upload_image(
     return client.post(
         "/api/digs",
         headers=auth_headers(identity),
-        data={"place_id": str(place_id)},
         files={"file": (filename, data or jpeg_bytes(), content_type)},
     )
 
@@ -161,7 +180,7 @@ def test_approved_image_is_saved_and_appears_in_feed(
     identity = create_present_user("0500003001", "Photographer", [place_id])
     image_data = jpeg_bytes()
 
-    uploaded = upload_image(client, identity, place_id, data=image_data)
+    uploaded = upload_image(client, identity, data=image_data)
 
     assert uploaded.status_code == 201
     body = uploaded.json()
@@ -197,7 +216,6 @@ def test_short_video_is_validated_and_moderated_as_frames(
     uploaded = client.post(
         "/api/digs",
         headers=auth_headers(identity),
-        data={"place_id": str(place_id)},
         files={"file": ("clip.mp4", mp4_bytes(), "video/mp4")},
     )
 
@@ -217,7 +235,7 @@ def test_rejected_media_is_neither_saved_nor_listed(
         categories=["violence"],
     )
 
-    rejected = upload_image(client, identity, place_id)
+    rejected = upload_image(client, identity)
 
     assert rejected.status_code == 422
     with SessionLocal() as db:
@@ -241,7 +259,7 @@ def test_moderation_failure_fails_closed_without_storing_media(
         categories=["ai_failure"],
     )
 
-    unavailable = upload_image(client, identity, place_id)
+    unavailable = upload_image(client, identity)
 
     assert unavailable.status_code == 503
     with SessionLocal() as db:
@@ -257,7 +275,6 @@ def test_wrong_type_filename_and_oversized_uploads_are_rejected(
     wrong_type = upload_image(
         client,
         identity,
-        place_id,
         filename="notes.txt",
         content_type="text/plain",
         data=b"not media",
@@ -265,19 +282,16 @@ def test_wrong_type_filename_and_oversized_uploads_are_rejected(
     unsafe_name = upload_image(
         client,
         identity,
-        place_id,
         filename="../photo.jpg",
     )
     oversized = upload_image(
         client,
         identity,
-        place_id,
         data=b"x" * (10 * 1024 * 1024 + 1),
     )
     long_video = client.post(
         "/api/digs",
         headers=auth_headers(identity),
-        data={"place_id": str(place_id)},
         files={"file": ("long.mp4", mp4_bytes(frame_count=80), "video/mp4")},
     )
 
@@ -295,7 +309,6 @@ def test_upload_requires_authentication(
 
     response = client.post(
         "/api/digs",
-        data={"place_id": str(place_id)},
         files={"file": ("photo.jpg", jpeg_bytes(), "image/jpeg")},
     )
 
@@ -303,7 +316,7 @@ def test_upload_requires_authentication(
     assert fake_media_ai.sample_counts == []
 
 
-def test_wrong_place_cannot_upload_read_feed_or_media(
+def test_upload_uses_current_place_and_wrong_place_cannot_read_feed_or_media(
     client: TestClient, fake_media_ai: FakeMediaAI
 ) -> None:
     first_place = create_place("North Building", 3005)
@@ -311,17 +324,23 @@ def test_wrong_place_cannot_upload_read_feed_or_media(
     first_user = create_present_user("0500003005", "North User", [first_place])
     second_user = create_present_user("0500003006", "South User", [second_place])
 
-    uploaded = upload_image(client, first_user, first_place)
+    uploaded = upload_image(client, first_user)
     assert uploaded.status_code == 201
     media_url = uploaded.json()["media_url"]
 
-    denied_upload = upload_image(client, second_user, first_place)
+    automatic_upload = client.post(
+        "/api/digs",
+        headers=auth_headers(second_user),
+        data={"place_id": str(first_place)},
+        files={"file": ("photo.jpg", jpeg_bytes(), "image/jpeg")},
+    )
     denied_feed = client.get(
         f"/api/digs?place_id={first_place}", headers=auth_headers(second_user)
     )
     denied_media = client.get(media_url, headers=auth_headers(second_user))
 
-    assert denied_upload.status_code == 403
+    assert automatic_upload.status_code == 201
+    assert automatic_upload.json()["place_id"] == second_place
     assert denied_feed.status_code == 403
     assert denied_media.status_code == 403
 
@@ -334,7 +353,7 @@ def test_expired_dig_is_hidden_and_media_is_unavailable(
     created_at = datetime(2030, 1, 1, 12, tzinfo=timezone.utc)
     monkeypatch.setattr("app.digs.utc_now", lambda: created_at)
 
-    uploaded = upload_image(client, identity, place_id)
+    uploaded = upload_image(client, identity)
     assert uploaded.status_code == 201
     media_url = uploaded.json()["media_url"]
     assert client.get(
@@ -369,7 +388,8 @@ def test_parent_scope_uses_deepest_origin_and_reaches_sibling_place_user(
         "0500003011", "South Viewer", [campus_id, south_id]
     )
 
-    uploaded = upload_image(client, author, campus_id)
+    fake_media_ai.route_place_id = campus_id
+    uploaded = upload_image(client, author)
 
     assert uploaded.status_code == 201
     dig = uploaded.json()
@@ -382,3 +402,22 @@ def test_parent_scope_uses_deepest_origin_and_reaches_sibling_place_user(
     assert feed.status_code == 200
     assert [item["id"] for item in feed.json()["digs"]] == [dig["id"]]
     assert client.get(dig["media_url"], headers=auth_headers(viewer)).status_code == 200
+
+
+def test_uncertain_media_scope_falls_back_to_deepest_current_place(
+    client: TestClient, fake_media_ai: FakeMediaAI
+) -> None:
+    campus_id = create_place("Fallback Campus", 3013)
+    room_id = create_place("Fallback Room", 3014, parent_place_id=campus_id)
+    author = create_present_user(
+        "0500003012", "Fallback Author", [campus_id, room_id]
+    )
+    fake_media_ai.route_place_id = campus_id
+    fake_media_ai.route_confidence = 0.4
+
+    uploaded = upload_image(client, author)
+
+    assert uploaded.status_code == 201
+    assert uploaded.json()["place_id"] == room_id
+    assert uploaded.json()["origin_place_id"] == room_id
+    assert fake_media_ai.route_calls == 1
