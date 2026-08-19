@@ -40,15 +40,14 @@ class OSMPlaceResolver:
     def _client(self) -> httpx.Client:
         return httpx.Client(
             headers={"User-Agent": settings.osm_user_agent},
-            timeout=10.0,
+            timeout=float(settings.overpass_timeout_seconds),
             follow_redirects=True,
         )
 
-    def _resolve_with_overpass(
-        self, latitude: float, longitude: float
-    ) -> list[ResolvedPlace]:
-        query = f"""
-        [out:json][timeout:10];
+    @staticmethod
+    def _overpass_query(latitude: float, longitude: float) -> str:
+        return f"""
+        [out:json][timeout:{settings.overpass_timeout_seconds}];
         is_in({latitude},{longitude})->.areas;
         (
           way(pivot.areas)["name"];
@@ -56,6 +55,11 @@ class OSMPlaceResolver:
         );
         out tags center geom;
         """
+
+    def _resolve_with_overpass(
+        self, latitude: float, longitude: float
+    ) -> list[ResolvedPlace]:
+        query = self._overpass_query(latitude, longitude)
         with self._client() as client:
             response = client.post(
                 f"{settings.overpass_url}/interpreter", data={"data": query}

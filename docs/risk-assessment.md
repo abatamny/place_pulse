@@ -7,7 +7,7 @@ This assessment is intentionally scoped to a university course deployment: one D
 | Local model timeout, startup failure, resource exhaustion, or invalid output | Internal-only inference API, bounded concurrency, persistent model cache, strict response validation, pre-publication operations fail closed, worker records failed jobs and continues | First startup requires model downloads and moderation can be unavailable while models warm. Production could add capacity monitoring and redundant inference instances. |
 | Image moderation blind spots | Uploads and sampled video frames are classified as SFW, NSFW, or NSFL before publication, with a conservative configurable threshold | The classifier does not detect every contextual harm, text in images, hate symbols, weapons, or PII, and its NSFL training class is underrepresented. Production needs broader models and a review path. |
 | Prompt injection or unsafe generated decisions | Inputs are normalized and checked, moderation categories are allow-listed, place IDs and hierarchy are validated | Pattern checks cannot guarantee detection of every future attack. Production needs ongoing adversarial evaluation and policy updates. |
-| OpenStreetMap outage or rate limit | Errors return safely without replacing current presence with an unverified local match | Every heartbeat depends on OpenStreetMap. Production could use a permitted cache/proxy and monitored retry policy that still refreshes nested-place data. |
+| Local Overpass unavailable, importing, or stale | Internal-only API, persistent regional index, area-aware health check, and safe heartbeat errors that preserve the last verified presence | The course deployment uses a static Geofabrik snapshot and one Overpass container. Production would apply monitored regional updates and provide backup capacity. |
 | Unauthorized access to place content | Short-lived presence is checked for KNOCK, DIG, Explore, and Forum; automated cross-place tests cover isolation | Browser coordinates can be spoofed. Stronger proof of physical presence is outside the course scope. |
 | Direct-message privacy leak | Every conversation query is filtered to the authenticated sender/recipient; tests include an unrelated user | Messages are not end-to-end encrypted. Production would add stronger privacy review, retention controls, and audit tooling. |
 | Anonymous-post identity exposure | Public responses replace the author with `Anonymous` while the database retains ownership for the personal area | Database administrators can still identify authors. The UI should describe anonymity as public, not absolute. |
@@ -25,7 +25,7 @@ This assessment is intentionally scoped to a university course deployment: one D
 
 ## Failure behavior summary
 
-- AI or OSM failures return a clear error and do not publish unverified content.
+- AI or local Overpass failures return a clear error and do not publish unverified content.
 - Database failure makes `/api/health` return `503`; Compose health checks prevent dependent services from being treated as ready.
 - Expired presence removes access to place-only feeds and turns the completed presence into a visit.
 - Failed post-publication moderation jobs are stored as failed instead of crashing the worker loop.
