@@ -38,7 +38,7 @@ Use this stack unless the user explicitly approves a change:
 | Database | PostgreSQL + PostGIS | One database container; PostGIS stores boundaries and supports geographic checks. |
 | Worker | Same Python backend image | Start it with a different command; use the database jobs table instead of a separate queue service. |
 | Media | Local Docker volume | Store files on disk and store metadata/safe paths in PostgreSQL. |
-| Location services | OpenStreetMap Nominatim + Overpass | Called only by the backend to resolve locations and obtain OSM objects/boundaries; reuse locally stored results. |
+| Location services | OpenStreetMap Nominatim + Overpass | Called only by the backend on every location heartbeat; persist resolved OSM objects/boundaries under stable internal IDs. |
 | AI | One provider adapter | Use a configured external API for the core; a local LLM is optional later. |
 | Local orchestration | Docker Compose | Start the full application with one documented command. |
 
@@ -63,9 +63,9 @@ Do not replace these technologies or add an alternative framework for the same r
 
 ### 3. Places and presence
 
-- Resolve browser coordinates to one or more named OpenStreetMap objects.
+- Resolve every browser location heartbeat to one or more named OpenStreetMap objects.
 - Store each discovered place locally with an internal `place_id`, OSM type/ID, name, boundary, and optional parent place.
-- Reuse stored boundaries and perform local point/radius checks for later location updates instead of calling OSM on every heartbeat.
+- Upsert resolved places by their OSM type/ID so content keeps stable internal place references without using broad stored boundaries to decide later heartbeats.
 - Support nested places such as campus -> faculty -> building.
 - Use heartbeats while the app is open and expire stale presence.
 - Record visits and promote repeated users from `VISITOR` to `BELONG` using a simple threshold.
@@ -139,14 +139,14 @@ Build the small frontend needed for each feature together with its backend. Do n
 ### Step 3 - Places, presence, visits, and rank
 
 - Request browser coordinates while the app is open and send periodic updates to the backend.
-- Resolve coordinates through OpenStreetMap when the backend does not already know the containing place.
+- Resolve coordinates through OpenStreetMap on every location heartbeat so newly mapped or more specific nested places can be discovered.
 - Create/update local place records from the returned OSM identifiers, names, boundaries, and containment relationships.
-- Use stored boundaries and simple point/radius logic for repeated presence updates.
+- Reuse internal place IDs by upserting OSM objects, but do not use stored boundaries as a shortcut for heartbeat resolution.
 - Support nested places and show the detected place in the UI.
 - Expire stale presence, record completed visits, and promote a user from `VISITOR` to `BELONG` after a simple visit threshold.
 - Test coordinate mapping, nested places, stale presence, visit recording, and rank promotion.
 
-**Complete when:** sharing a real browser location discovers and stores the correct OSM-backed place, repeated updates reuse it, and visits/rank persist in the database.
+**Complete when:** sharing a real browser location discovers and stores the correct OSM-backed place, every update can discover newly returned nested places without duplicating existing OSM objects, and visits/rank persist in the database.
 
 ### Step 4 - AI jobs used by the core features
 

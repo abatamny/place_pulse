@@ -44,6 +44,6 @@ The system test performs registration, verification, login, location heartbeat, 
 
 ## Limitations and future work
 
-The project is designed for one backend process and one VM. Browser geolocation can be spoofed, rate limiting is in memory, direct messages are not end-to-end encrypted, and local volumes are not automatically backed up. Live first-time place resolution depends on public OpenStreetMap availability, while AI-moderated publication depends on the configured provider. These constraints and proportionate production improvements are detailed in [risk-assessment.md](risk-assessment.md).
+The project is designed for one backend process and one VM. Browser geolocation can be spoofed, rate limiting is in memory, direct messages are not end-to-end encrypted, and local volumes are not automatically backed up. Live place heartbeats depend on public OpenStreetMap availability, while AI-moderated publication depends on the configured provider. These constraints and proportionate production improvements are detailed in [risk-assessment.md](risk-assessment.md).
 
 Azure provisioning remains a manual billable operation. After that one-time setup, the optional GitHub Actions job uses OIDC and Azure VM Run Command to deploy the exact successful `main` commit automatically. The demonstration video is a submission artifact and must be recorded and linked after the final UI walkthrough.

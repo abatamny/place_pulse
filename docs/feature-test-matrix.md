@@ -8,7 +8,7 @@ This list connects each implemented feature to its main automated evidence. Exte
 | Authentication boundary across protected HTTP and WebSocket routes | `tests/test_auth.py`, `tests/test_security.py`, `tests/test_knock.py`, `tests/test_dms.py` | Security |
 | Expired sessions and hashed stored tokens | `tests/test_security.py` | Security |
 | Authentication and feature rate limits | `tests/test_security.py`, `tests/test_digs.py`, `tests/test_dms.py` | Unit/security |
-| Coordinate validation, OSM place resolution, local boundary reuse | `tests/test_places.py` | Integration |
+| Coordinate validation, per-heartbeat OSM resolution, stable place upserts, later nested-place discovery | `tests/test_places.py` | Integration |
 | Presence expiry, saved visits, VISITOR-to-BELONG promotion | `tests/test_places.py` | Integration |
 | Structured AI moderation, compatible API format, timeouts, fail-closed behavior | `tests/test_ai.py` | Unit/integration |
 | Prompt-injection and invalid AI-output rejection | `tests/test_ai.py`, `tests/test_forum.py` | Security |
