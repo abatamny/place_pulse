@@ -2113,6 +2113,10 @@ button:focus-visible {
   z-index: 16;
 }
 
+.dig-popover-control {
+  display: contents;
+}
+
 .dig-map-marker {
   position: absolute;
   display: grid;

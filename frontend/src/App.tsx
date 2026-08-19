@@ -447,6 +447,48 @@ function scrollFeedToEnd(element: HTMLElement | null) {
   });
 }
 
+function useDismissOnOutsideInteraction<T extends HTMLElement>(
+  open: boolean,
+  onDismiss: () => void,
+) {
+  const containerRef = useRef<T | null>(null);
+  const dismissRef = useRef(onDismiss);
+
+  useEffect(() => {
+    dismissRef.current = onDismiss;
+  }, [onDismiss]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node
+        && !containerRef.current?.contains(event.target)
+      ) {
+        dismissRef.current();
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        dismissRef.current();
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  return containerRef;
+}
+
 function PresencePanel({
   token,
   places,
@@ -909,11 +951,6 @@ function KnockPanel({
               >
                 <div className="message-meta">
                   <strong>{message.nickname}</strong>
-                  <span>
-                    {message.origin_place_id === message.place_id
-                      ? message.place_display_name
-                      : `${message.origin_place_display_name} · shared with ${message.place_display_name}`}
-                  </span>
                   <time dateTime={message.created_at}>
                     {new Date(message.created_at).toLocaleTimeString([], {
                       hour: "2-digit",
@@ -1096,6 +1133,17 @@ function DigPanel({
   const [selectedFilename, setSelectedFilename] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const composerControlRef = useDismissOnOutsideInteraction<HTMLDivElement>(
+    composerOpen,
+    () => {
+      setComposerOpen(false);
+      setSelectedFilename("");
+    },
+  );
+  const expandedDigRef = useDismissOnOutsideInteraction<HTMLElement>(
+    selectedDig !== null,
+    () => setSelectedDig(null),
+  );
 
   useEffect(() => {
     setSelectedDig(null);
@@ -1320,36 +1368,37 @@ function DigPanel({
         );
       })}
 
-      <div className="map-dig-toolbar">
-        <button
-          className="map-dig-add"
-          disabled={uploading}
-          onClick={() => {
-            if (composerOpen) {
-              setSelectedFilename("");
-            }
-            setComposerOpen((open) => !open);
-          }}
-          type="button"
-        >
-          <Icon name="camera" size={18} />
-          {uploading ? "Checking DIG..." : "Add DIG"}
-        </button>
-      </div>
+      <div className="dig-popover-control" ref={composerControlRef}>
+        <div className="map-dig-toolbar">
+          <button
+            className="map-dig-add"
+            disabled={uploading}
+            onClick={() => {
+              if (composerOpen) {
+                setSelectedFilename("");
+              }
+              setComposerOpen((open) => !open);
+            }}
+            type="button"
+          >
+            <Icon name="camera" size={18} />
+            {uploading ? "Checking DIG..." : "Add DIG"}
+          </button>
+        </div>
 
-      {digs.length === 0 && activeLocalMarkers.length === 0 && !composerOpen && (
-        <button
-          className="dig-map-empty"
-          onClick={() => setComposerOpen(true)}
-          type="button"
-        >
-          <Icon name="plus" size={18} />
-          Be the first to leave a DIG here
-        </button>
-      )}
+        {digs.length === 0 && activeLocalMarkers.length === 0 && !composerOpen && (
+          <button
+            className="dig-map-empty"
+            onClick={() => setComposerOpen(true)}
+            type="button"
+          >
+            <Icon name="plus" size={18} />
+            Be the first to leave a DIG here
+          </button>
+        )}
 
-      {composerOpen && (
-        <section className="dig-upload-popover" aria-label="Add a DIG">
+        {composerOpen && (
+          <section className="dig-upload-popover" aria-label="Add a DIG">
           <header className="popover-header">
             <div>
               <p className="eyebrow">Visible for 24 hours</p>
@@ -1400,14 +1449,15 @@ function DigPanel({
             </button>
           </form>
           {error && <p className="knock-error">{error}</p>}
-        </section>
-      )}
+          </section>
+        )}
+      </div>
 
       {notice && <p className="dig-map-notice">{notice}</p>}
       {error && !composerOpen && <p className="dig-map-notice dig-map-notice--error">{error}</p>}
 
       {selectedDig && (
-        <article className="dig-expanded-card">
+        <article className="dig-expanded-card" ref={expandedDigRef}>
           <header className="popover-header">
             <div>
               <span className="dig-author-row">
@@ -2748,6 +2798,14 @@ function SignedInApp({
     "connecting" | "connected" | "disconnected"
   >("connecting");
   const placeKey = places.map((place) => place.id).join(",");
+  const profileControlRef = useDismissOnOutsideInteraction<HTMLDivElement>(
+    accountOpen,
+    () => setAccountOpen(false),
+  );
+  const nearbyUserControlRef = useDismissOnOutsideInteraction<HTMLDivElement>(
+    selectedNearbyUser !== null,
+    () => setSelectedNearbyUser(null),
+  );
 
   useEffect(() => {
     setActiveScopeId((current) => {
@@ -2766,19 +2824,6 @@ function SignedInApp({
       setSelectedNearbyUser(null);
     }
   }, [nearbyUsers, selectedNearbyUser]);
-
-  useEffect(() => {
-    if (!selectedNearbyUser) {
-      return;
-    }
-    function closeNearbyUserCard(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setSelectedNearbyUser(null);
-      }
-    }
-    window.addEventListener("keydown", closeNearbyUserCard);
-    return () => window.removeEventListener("keydown", closeNearbyUserCard);
-  }, [selectedNearbyUser]);
 
   function openNearbyUserChat(nearbyUser: NearbyUser) {
     setDmChatRequest((current) => ({
@@ -2886,7 +2931,7 @@ function SignedInApp({
             <Icon name="messages" size={20} />
             {dmUnread > 0 && <b className="unread-badge">{dmUnread > 9 ? "9+" : dmUnread}</b>}
           </button>
-          <div className="profile-wrap">
+          <div className="profile-wrap" ref={profileControlRef}>
             <button
               aria-expanded={accountOpen}
               aria-label="Open account menu"
@@ -3002,6 +3047,7 @@ function SignedInApp({
                 <div
                   className={`map-nearby-marker map-nearby-marker--${nearbyUser.id % 4} ${isSelected ? "map-nearby-marker--open" : ""} ${isInActiveScope ? "" : "map-nearby-marker--outside-scope"}`}
                   key={nearbyUser.id}
+                  ref={isSelected ? nearbyUserControlRef : undefined}
                   style={{ left: `${position.left}%`, top: `${position.top}%` }}
                 >
                   <button
