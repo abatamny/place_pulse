@@ -1,6 +1,7 @@
 import {
   type FormEvent,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -206,6 +207,62 @@ type DMHistoryResponse = {
 type DMUserSearchResponse = {
   users: DMUser[];
 };
+
+function mergeDMMessages(messages: DMMessage[]): DMMessage[] {
+  return Array.from(
+    new Map(messages.map((message) => [message.id, message])).values(),
+  ).sort(
+    (first, second) =>
+      new Date(first.created_at).getTime() - new Date(second.created_at).getTime(),
+  );
+}
+
+function updateDMConversations(
+  conversations: DMConversation[],
+  message: DMMessage,
+  viewerUserId: number,
+  activeUserId: number | null,
+  fallbackUser?: DMUser,
+): DMConversation[] {
+  const otherUserId =
+    message.sender_id === viewerUserId ? message.recipient_id : message.sender_id;
+  const existing = conversations.find(
+    (conversation) => conversation.user.id === otherUserId,
+  );
+
+  if (!existing) {
+    if (!fallbackUser || fallbackUser.id !== otherUserId) {
+      return conversations;
+    }
+    return [
+      {
+        user: fallbackUser,
+        last_message: message,
+        unread_count:
+          message.recipient_id === viewerUserId && activeUserId !== otherUserId ? 1 : 0,
+      },
+      ...conversations,
+    ];
+  }
+
+  const isDuplicate = existing.last_message.id === message.id;
+  const unreadCount =
+    activeUserId === otherUserId
+      ? 0
+      : message.recipient_id === viewerUserId && !isDuplicate
+        ? existing.unread_count + 1
+        : existing.unread_count;
+  const updated = {
+    ...existing,
+    last_message: message,
+    unread_count: unreadCount,
+  };
+
+  return [
+    updated,
+    ...conversations.filter((conversation) => conversation.user.id !== otherUserId),
+  ];
+}
 
 const TOKEN_KEY = "placepulse-session";
 
@@ -1867,7 +1924,7 @@ function ForumPanel({
 function DMPanel({
   token,
   user,
-  notificationNumber,
+  incomingMessage,
   socketStatus,
   onUnreadChange,
   sidebarOpen,
@@ -1875,22 +1932,35 @@ function DMPanel({
 }: {
   token: string;
   user: User;
-  notificationNumber: number;
+  incomingMessage: DMMessage | null;
   socketStatus: "connecting" | "connected" | "disconnected";
   onUnreadChange: (count: number) => void;
   sidebarOpen: boolean;
   onSidebarClose: () => void;
 }) {
+  const messagesRef = useRef<HTMLDivElement | null>(null);
+  const processedIncomingMessageIdRef = useRef<number | null>(null);
   const [conversations, setConversations] = useState<DMConversation[]>([]);
   const [selectedUser, setSelectedUser] = useState<DMUser | null>(null);
   const [messages, setMessages] = useState<DMMessage[]>([]);
   const [searchResults, setSearchResults] = useState<DMUser[]>([]);
   const [draft, setDraft] = useState("");
-  const [refreshNumber, setRefreshNumber] = useState(0);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [chatMinimized, setChatMinimized] = useState(false);
   const [error, setError] = useState("");
+
+  useLayoutEffect(() => {
+    if (chatMinimized || loading || !messagesRef.current) {
+      return;
+    }
+    const messageFeed = messagesRef.current;
+    messageFeed.scrollTop = messageFeed.scrollHeight;
+    const frameId = window.requestAnimationFrame(() => {
+      messageFeed.scrollTop = messageFeed.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [chatMinimized, loading, messages.length, selectedUser?.id]);
 
   useEffect(() => {
     let active = true;
@@ -1902,12 +1972,6 @@ function DMPanel({
       .then((response) => {
         if (active) {
           setConversations(response.conversations);
-          onUnreadChange(
-            response.conversations.reduce(
-              (total, conversation) => total + conversation.unread_count,
-              0,
-            ),
-          );
         }
       })
       .catch((caught) => {
@@ -1918,7 +1982,16 @@ function DMPanel({
     return () => {
       active = false;
     };
-  }, [notificationNumber, onUnreadChange, refreshNumber, token]);
+  }, [token]);
+
+  useEffect(() => {
+    onUnreadChange(
+      conversations.reduce(
+        (total, conversation) => total + conversation.unread_count,
+        0,
+      ),
+    );
+  }, [conversations, onUnreadChange]);
 
   useEffect(() => {
     if (!selectedUser) {
@@ -1946,17 +2019,12 @@ function DMPanel({
           { method: "POST" },
           token,
         );
-        const refreshed = await apiRequest<DMConversationListResponse>(
-          "/api/dms/conversations",
-          {},
-          token,
-        );
         if (active) {
-          setConversations(refreshed.conversations);
-          onUnreadChange(
-            refreshed.conversations.reduce(
-              (total, conversation) => total + conversation.unread_count,
-              0,
+          setConversations((current) =>
+            current.map((conversation) =>
+              conversation.user.id === history.user.id
+                ? { ...conversation, unread_count: 0 }
+                : conversation,
             ),
           );
         }
@@ -1974,7 +2042,51 @@ function DMPanel({
     return () => {
       active = false;
     };
-  }, [notificationNumber, onUnreadChange, refreshNumber, selectedUser?.id, token]);
+  }, [selectedUser?.id, token]);
+
+  useEffect(() => {
+    if (
+      !incomingMessage ||
+      processedIncomingMessageIdRef.current === incomingMessage.id
+    ) {
+      return;
+    }
+    processedIncomingMessageIdRef.current = incomingMessage.id;
+
+    const otherUserId =
+      incomingMessage.sender_id === user.id
+        ? incomingMessage.recipient_id
+        : incomingMessage.sender_id;
+    const activeUserId = selectedUser?.id ?? null;
+
+    if (otherUserId === activeUserId) {
+      setMessages((current) => mergeDMMessages([...current, incomingMessage]));
+      if (incomingMessage.recipient_id === user.id) {
+        void apiRequest<void>(
+          `/api/dms/${otherUserId}/read`,
+          { method: "POST" },
+          token,
+        ).catch(() => undefined);
+      }
+    }
+
+    const knownConversation = conversations.some(
+      (conversation) => conversation.user.id === otherUserId,
+    );
+    setConversations((current) =>
+      updateDMConversations(current, incomingMessage, user.id, activeUserId),
+    );
+
+    if (!knownConversation) {
+      apiRequest<DMConversationListResponse>(
+        "/api/dms/conversations",
+        {},
+        token,
+      )
+        .then((response) => setConversations(response.conversations))
+        .catch(() => undefined);
+    }
+  }, [incomingMessage, selectedUser?.id, token, user.id]);
 
   async function searchUsers(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2014,9 +2126,17 @@ function DMPanel({
         },
         token,
       );
-      setMessages((current) => [...current, message]);
+      setMessages((current) => mergeDMMessages([...current, message]));
+      setConversations((current) =>
+        updateDMConversations(
+          current,
+          message,
+          user.id,
+          selectedUser.id,
+          selectedUser,
+        ),
+      );
       setDraft("");
-      setRefreshNumber((value) => value + 1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not send message");
     } finally {
@@ -2138,7 +2258,7 @@ function DMPanel({
           </header>
           {!chatMinimized && (
             <>
-              <div className="dm-messages" aria-live="polite">
+              <div className="dm-messages" aria-live="polite" ref={messagesRef}>
                 {loading ? (
                   <p className="dm-loading">Loading messages...</p>
                 ) : messages.length === 0 ? (
@@ -2230,7 +2350,7 @@ function SignedInApp({
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [dmUnread, setDmUnread] = useState(0);
-  const [dmNotificationNumber, setDmNotificationNumber] = useState(0);
+  const [latestDMMessage, setLatestDMMessage] = useState<DMMessage | null>(null);
   const [dmSocketStatus, setDmSocketStatus] = useState<
     "connecting" | "connected" | "disconnected"
   >("connecting");
@@ -2256,9 +2376,8 @@ function SignedInApp({
           reconnectAttempts = 0;
           setDmSocketStatus("connected");
         } else if (payload.type === "message") {
-          setDmNotificationNumber((value) => value + 1);
-          if (payload.message?.recipient_id === user.id) {
-            setDmUnread((value) => value + 1);
+          if (payload.message) {
+            setLatestDMMessage(payload.message as DMMessage);
           }
         }
       };
@@ -2274,20 +2393,6 @@ function SignedInApp({
       };
     }
 
-    apiRequest<DMConversationListResponse>(
-      "/api/dms/conversations",
-      {},
-      token,
-    )
-      .then((response) =>
-        setDmUnread(
-          response.conversations.reduce(
-            (total, conversation) => total + conversation.unread_count,
-            0,
-          ),
-        ),
-      )
-      .catch(() => undefined);
     connect();
     return () => {
       active = false;
@@ -2429,7 +2534,7 @@ function SignedInApp({
       </div>
 
       <DMPanel
-        notificationNumber={dmNotificationNumber}
+        incomingMessage={latestDMMessage}
         onSidebarClose={() => setMessagesOpen(false)}
         onUnreadChange={setDmUnread}
         sidebarOpen={messagesOpen}
