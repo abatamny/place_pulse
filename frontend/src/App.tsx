@@ -689,6 +689,19 @@ function KnockPanel({
     setDraft("");
   }
 
+  const routingOnly =
+    places.length > 1 && places.every((place) => place.rank === "BELONG");
+  const pendingStatus = routingOnly
+    ? "Routing"
+    : places.length === 1 && places[0].rank === "BELONG"
+      ? "Sending"
+      : "Checking";
+  const pendingExplanation = routingOnly
+    ? "Choosing the right place. Visible only to you."
+    : places.length === 1 && places[0].rank === "BELONG"
+      ? "Waiting for server confirmation. Visible only to you."
+      : "Routing and safety checks may be in progress. Visible only to you.";
+
   if (!places.length) {
     return (
       <section className="knock-card knock-empty">
@@ -754,7 +767,7 @@ function KnockPanel({
               >
                 <div className="message-meta">
                   <strong>{user.nickname}</strong>
-                  <span className="pending-status">Checking</span>
+                  <span className="pending-status">{pendingStatus}</span>
                   <time dateTime={message.created_at}>
                     {new Date(message.created_at).toLocaleTimeString([], {
                       hour: "2-digit",
@@ -764,7 +777,7 @@ function KnockPanel({
                 </div>
                 <p>{message.text}</p>
                 <small className="pending-explanation">
-                  Being checked · visible only to you
+                  {pendingExplanation}
                 </small>
               </article>
             ))}
