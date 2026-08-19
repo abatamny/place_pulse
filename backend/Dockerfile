@@ -13,4 +13,4 @@ COPY app ./app
 COPY tests ./tests
 COPY pytest.ini .
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*", "--limit-concurrency", "160", "--backlog", "128", "--ws-max-size", "65536", "--timeout-keep-alive", "5"]

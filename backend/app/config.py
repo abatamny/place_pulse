@@ -45,6 +45,15 @@ class Settings:
     db_user: str = os.getenv("POSTGRES_USER", "placepulse")
     db_password: str = os.getenv("POSTGRES_PASSWORD", "placepulse")
     media_root: Path = Path(os.getenv("MEDIA_ROOT", "/app/media"))
+    max_request_body_bytes: int = int(
+        os.getenv("MAX_REQUEST_BODY_BYTES", str(11 * 1024 * 1024))
+    )
+    max_concurrent_http_requests: int = int(
+        os.getenv("MAX_CONCURRENT_HTTP_REQUESTS", "50")
+    )
+    max_websocket_connections: int = int(
+        os.getenv("MAX_WEBSOCKET_CONNECTIONS", "100")
+    )
 
     @property
     def database_url(self) -> URL:

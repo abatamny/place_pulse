@@ -7,7 +7,8 @@ This list connects each implemented feature to its main automated evidence. Exte
 | Registration, demo-code fallback, SMS delivery/rollback, password hashing, login, logout, session revocation | `tests/test_auth.py`, `tests/test_sms.py` | Unit/integration/security |
 | Authentication boundary across protected HTTP and WebSocket routes | `tests/test_auth.py`, `tests/test_security.py`, `tests/test_knock.py`, `tests/test_dms.py` | Security |
 | Expired sessions and hashed stored tokens | `tests/test_security.py` | Security |
-| Authentication and feature rate limits | `tests/test_security.py`, `tests/test_digs.py`, `tests/test_dms.py` | Unit/security |
+| Authentication and feature rate limits, including reconnect-resistant KNOCK limiting | `tests/test_security.py`, `tests/test_digs.py`, `tests/test_dms.py` | Unit/security |
+| Strict malformed-input handling and backend-wide request-body cap | `tests/test_security.py` | Security |
 | Coordinate validation, per-heartbeat OSM resolution, locality extraction, stable place upserts, later nested-place discovery, canonical labels | `tests/test_places.py`, `tests/test_knock.py`, `tests/test_digs.py`, `tests/test_explore.py`, `tests/test_forum.py` | Integration |
 | Presence expiry, saved visits, VISITOR-to-BELONG promotion | `tests/test_places.py` | Integration |
 | Structured AI moderation, compatible API format, timeouts, fail-closed behavior | `tests/test_ai.py` | Unit/integration |
@@ -20,7 +21,7 @@ This list connects each implemented feature to its main automated evidence. Exte
 | Forum posts, anonymous identity hiding, comments, votes, personal totals | `tests/test_forum.py` | Integration/security |
 | Private direct messages, search, unread counts, read state, live notification | `tests/test_dms.py` | Integration/WebSocket |
 | Complete user journey across auth, presence, KNOCK, forum, DMs, logout | `tests/test_system.py` | System/E2E |
-| Concurrent health checks and concurrent DM persistence | `tests/test_stress.py` | Course-sized stress |
+| Concurrent health checks, concurrent DM persistence, and retryable overload admission | `tests/test_stress.py` | Course-sized stress |
 | Complete four-service startup, public Nginx route, backend/database health, authenticated proxy flow | `scripts/fresh-start-test.ps1`, `.github/workflows/ci.yml` | Deployment/system |
 | Frontend TypeScript production compilation | `npm run build`, `.github/workflows/ci.yml` | Build/static check |
 

@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from datetime import datetime
 from typing import Literal
 
@@ -16,7 +17,30 @@ def normalize_phone(value: str) -> str:
     return normalized
 
 
-class PhonePayload(BaseModel):
+def clean_required_text(
+    value: str,
+    empty_message: str,
+    *,
+    allow_line_breaks: bool = True,
+) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError(empty_message)
+    allowed_controls = {"\n", "\r", "\t"} if allow_line_breaks else set()
+    if any(
+        unicodedata.category(character) == "Cc"
+        and character not in allowed_controls
+        for character in value
+    ):
+        raise ValueError("Text contains invalid control characters")
+    return value
+
+
+class StrictRequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class PhonePayload(StrictRequestModel):
     phone: str
 
     @field_validator("phone", mode="before")
@@ -32,7 +56,11 @@ class RegisterStartRequest(PhonePayload):
     @field_validator("nickname")
     @classmethod
     def clean_nickname(cls, value: str) -> str:
-        value = value.strip()
+        value = clean_required_text(
+            value,
+            "Nickname must contain at least 2 characters",
+            allow_line_breaks=False,
+        )
         if len(value) < 2:
             raise ValueError("Nickname must contain at least 2 characters")
         return value
@@ -65,7 +93,7 @@ class TokenResponse(BaseModel):
     user: UserResponse
 
 
-class CoordinatesRequest(BaseModel):
+class CoordinatesRequest(StrictRequestModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
 
@@ -99,7 +127,7 @@ class PresenceResponse(BaseModel):
     expires_in_seconds: int
 
 
-class KnockSendPayload(BaseModel):
+class KnockSendPayload(StrictRequestModel):
     type: Literal["message"]
     place_id: int | None = Field(default=None, gt=0)
     text: str = Field(min_length=1, max_length=500)
@@ -107,10 +135,7 @@ class KnockSendPayload(BaseModel):
     @field_validator("text")
     @classmethod
     def clean_text(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("Message cannot be empty")
-        return value
+        return clean_required_text(value, "Message cannot be empty")
 
 
 class KnockMessageResponse(BaseModel):
@@ -166,16 +191,13 @@ class ExploreDigResponse(BaseModel):
     created_at: datetime
 
 
-class ExploreCommentRequest(BaseModel):
+class ExploreCommentRequest(StrictRequestModel):
     text: str = Field(min_length=1, max_length=500)
 
     @field_validator("text")
     @classmethod
     def clean_text(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("Comment cannot be empty")
-        return value
+        return clean_required_text(value, "Comment cannot be empty")
 
 
 class ExploreCommentResponse(BaseModel):
@@ -210,7 +232,7 @@ class ExploreLikeResponse(BaseModel):
     like_count: int
 
 
-class ForumPostCreate(BaseModel):
+class ForumPostCreate(StrictRequestModel):
     place_id: int | None = Field(default=None, gt=0)
     title: str = Field(min_length=1, max_length=120)
     body: str = Field(min_length=1, max_length=1800)
@@ -219,25 +241,19 @@ class ForumPostCreate(BaseModel):
     @field_validator("title", "body")
     @classmethod
     def clean_post_text(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("Post text cannot be empty")
-        return value
+        return clean_required_text(value, "Post text cannot be empty")
 
 
-class ForumCommentCreate(BaseModel):
+class ForumCommentCreate(StrictRequestModel):
     text: str = Field(min_length=1, max_length=1000)
 
     @field_validator("text")
     @classmethod
     def clean_comment_text(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("Comment cannot be empty")
-        return value
+        return clean_required_text(value, "Comment cannot be empty")
 
 
-class ForumVoteRequest(BaseModel):
+class ForumVoteRequest(StrictRequestModel):
     value: Literal[-1, 1]
 
 
@@ -299,22 +315,14 @@ class DMUserSearchResponse(BaseModel):
     users: list[DMUserResponse]
 
 
-class DMMessageCreate(BaseModel):
+class DMMessageCreate(StrictRequestModel):
     recipient_id: int = Field(gt=0)
     text: str = Field(min_length=1, max_length=1000)
 
     @field_validator("text")
     @classmethod
     def clean_message_text(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("Message cannot be empty")
-        if any(
-            ord(character) < 32 and character not in {"\n", "\r", "\t"}
-            for character in value
-        ):
-            raise ValueError("Message contains invalid control characters")
-        return value
+        return clean_required_text(value, "Message cannot be empty")
 
 
 class DMMessageResponse(BaseModel):

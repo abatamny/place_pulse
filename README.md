@@ -49,11 +49,20 @@ The defaults work without creating an `.env` file. To change them, copy `.env.ex
 | `AI_MODERATION_MODEL` | `omni-moderation-latest` | Model used for DIG image and video-frame moderation |
 | `AI_MEDIA_MODERATION_MODE` | `moderations` | Use the moderation endpoint, or `model` to moderate media with a multimodal chat model |
 | `AI_TIMEOUT_SECONDS` | `8` | Maximum wait for a model decision |
+| `MAX_REQUEST_BODY_BYTES` | `11534336` (11 MiB) | Backend-wide request cap, including multipart overhead for a 10 MiB DIG |
+| `MAX_CONCURRENT_HTTP_REQUESTS` | `50` | Per-backend in-flight HTTP admission limit |
+| `MAX_WEBSOCKET_CONNECTIONS` | `100` | Per-backend WebSocket admission limit |
 | `POSTGRES_DB` | `placepulse` | PostgreSQL database name |
 | `POSTGRES_USER` | `placepulse` | PostgreSQL user |
 | `POSTGRES_PASSWORD` | `placepulse` | Local PostgreSQL password |
 
 Do not commit `.env`; it is ignored by Git.
+
+## Abuse and overload protection
+
+All request models reject unexpected fields, bound text and numeric inputs, trim required text, and reject invalid control characters. Nginx and the backend independently cap request bodies at 11 MiB; DIG validation then enforces the stricter 10 MiB file limit, allow-listed formats, decoded dimensions, and video duration.
+
+Authentication and write-heavy features use sliding-window rate limits, including KNOCK limits that remain in effect when a client reconnects. Nginx also bounds per-IP request bursts and connections. The backend admits at most 50 concurrent HTTP requests and 100 WebSockets by default, returning a retryable `503` or WebSocket `1013` instead of accepting unbounded work. Uvicorn adds a final connection/backlog and 64 KiB WebSocket-frame cap. These are intentionally single-instance, course-deployment safeguards rather than distributed production controls.
 
 When no SMS provider is configured, registration returns the six-digit code and
 the frontend labels it as a demo code. To send real verification messages with

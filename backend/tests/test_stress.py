@@ -1,15 +1,19 @@
+import asyncio
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
+from threading import Event
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app.auth import hash_session_token, utc_now
 from app.database import SessionLocal
 from app.models import AuthSession, DirectMessage, User
+from app.protection import ConcurrencyLimitMiddleware
 
 
 pytestmark = pytest.mark.stress
@@ -85,3 +89,42 @@ def test_concurrent_direct_messages_are_all_persisted(
     )
     assert conversations.status_code == 200
     assert conversations.json()["conversations"][0]["unread_count"] == message_count
+
+
+def test_excess_inflight_requests_receive_a_retryable_busy_response() -> None:
+    limited_app = FastAPI()
+    limited_app.add_middleware(
+        ConcurrencyLimitMiddleware,
+        max_http_requests=1,
+        max_websocket_connections=1,
+    )
+    entered = Event()
+    release = Event()
+
+    @limited_app.get("/slow")
+    async def slow() -> dict[str, str]:
+        entered.set()
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"status": "released"}
+
+    @limited_app.get("/probe")
+    async def probe() -> dict[str, str]:
+        return {"status": "available"}
+
+    with TestClient(limited_app) as limited_client:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            first_request = pool.submit(limited_client.get, "/slow")
+            try:
+                assert entered.wait(timeout=2)
+                rejected = limited_client.get("/probe")
+            finally:
+                release.set()
+            completed = first_request.result(timeout=2)
+
+        recovered = limited_client.get("/probe")
+
+    assert rejected.status_code == 503
+    assert rejected.headers["retry-after"] == "1"
+    assert completed.status_code == 200
+    assert recovered.status_code == 200

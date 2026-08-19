@@ -1,6 +1,5 @@
 import asyncio
-import time
-from collections import defaultdict, deque
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -21,6 +20,7 @@ from app.models import AIJob, KnockMessage, Place, PlaceMembership, Presence, Us
 from app.place_labels import place_display_name
 from app.place_scope import resolve_content_place_scope
 from app.places import PRESENCE_TTL, expire_stale_presences
+from app.rate_limit import AuthRateLimiter
 from app.schemas import KnockHistoryResponse, KnockMessageResponse, KnockSendPayload
 
 HISTORY_LIMIT = 50
@@ -28,6 +28,10 @@ MESSAGES_PER_MINUTE = 20
 
 knock_router = APIRouter(prefix="/api/knock", tags=["KNOCK"])
 knock_websocket_router = APIRouter()
+knock_rate_limiter = AuthRateLimiter(
+    max_attempts=MESSAGES_PER_MINUTE,
+    window_seconds=60,
+)
 
 
 def utc_now() -> datetime:
@@ -125,18 +129,7 @@ class RoomConnection:
     websocket: WebSocket
     user_id: int
     place_ids: set[int]
-    message_times: deque[float] = field(default_factory=deque)
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-
-    def allow_message(self) -> bool:
-        now = time.monotonic()
-        cutoff = now - 60
-        while self.message_times and self.message_times[0] <= cutoff:
-            self.message_times.popleft()
-        if len(self.message_times) >= MESSAGES_PER_MINUTE:
-            return False
-        self.message_times.append(now)
-        return True
 
 
 class KnockRoomManager:
@@ -400,7 +393,9 @@ async def knock_websocket(
                 )
                 continue
 
-            if not connection.allow_message():
+            try:
+                knock_rate_limiter.check_key(str(auth.user.id), "knock-message")
+            except HTTPException:
                 await send_error(
                     connection,
                     "rate_limited",
