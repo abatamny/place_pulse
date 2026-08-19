@@ -249,6 +249,20 @@ function mergeMessages(messages: KnockMessage[]): KnockMessage[] {
     .slice(-100);
 }
 
+function scrollFeedToEnd(element: HTMLElement | null) {
+  if (!element) {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    element.scrollTo({
+      top: element.scrollHeight,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    });
+  });
+}
+
 function PresencePanel({
   token,
   places,
@@ -423,6 +437,7 @@ function KnockPanel({
   places: CurrentPlace[];
 }) {
   const socketRef = useRef<WebSocket | null>(null);
+  const feedRef = useRef<HTMLDivElement | null>(null);
   const pendingIdRef = useRef(-1);
   const [messages, setMessages] = useState<KnockMessage[]>([]);
   const [pendingMessages, setPendingMessages] = useState<PendingKnock[]>([]);
@@ -432,6 +447,10 @@ function KnockPanel({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const placeKey = places.map((place) => place.id).join(",");
+
+  useEffect(() => {
+    scrollFeedToEnd(feedRef.current);
+  }, [messages.length, pendingMessages.length]);
 
   useEffect(() => {
     if (!places.length) {
@@ -589,7 +608,7 @@ function KnockPanel({
         ))}
       </div>
 
-      <div className="knock-feed" aria-live="polite">
+      <div className="knock-feed" aria-live="polite" ref={feedRef}>
         {messages.length === 0 && pendingMessages.length === 0 ? (
           <div className="feed-empty">
             <p>No KNOCKS yet.</p>
@@ -753,6 +772,7 @@ function DigPanel({
   const [composerOpen, setComposerOpen] = useState(false);
   const [selectedDig, setSelectedDig] = useState<Dig | null>(null);
   const [pendingDig, setPendingDig] = useState<PendingDig | null>(null);
+  const [selectedFilename, setSelectedFilename] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const placeKey = places.map((place) => place.id).join(",");
@@ -855,6 +875,7 @@ function DigPanel({
       setComposerOpen(true);
     } finally {
       setPendingDig(null);
+      setSelectedFilename("");
       URL.revokeObjectURL(previewUrl);
       setUploading(false);
     }
@@ -922,7 +943,12 @@ function DigPanel({
         <button
           className="map-dig-add"
           disabled={uploading}
-          onClick={() => setComposerOpen((open) => !open)}
+          onClick={() => {
+            if (composerOpen) {
+              setSelectedFilename("");
+            }
+            setComposerOpen((open) => !open);
+          }}
           type="button"
         >
           <Icon name="camera" size={18} />
@@ -952,7 +978,10 @@ function DigPanel({
             <button
               aria-label="Close DIG upload"
               className="icon-button"
-              onClick={() => setComposerOpen(false)}
+              onClick={() => {
+                setComposerOpen(false);
+                setSelectedFilename("");
+              }}
               type="button"
             >
               <Icon name="x" />
@@ -971,14 +1000,27 @@ function DigPanel({
                 ))}
               </select>
             </label>
-            <label>
+            <label className="dig-file-field">
               Image or short video
-              <input
-                accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
-                ref={inputRef}
-                required
-                type="file"
-              />
+              <span className="dig-file-picker">
+                <input
+                  accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
+                  aria-label="Choose an image or short video"
+                  onChange={(event) =>
+                    setSelectedFilename(event.target.files?.[0]?.name ?? "")
+                  }
+                  ref={inputRef}
+                  required
+                  type="file"
+                />
+                <span className="dig-file-action">
+                  <Icon name="camera" size={18} />
+                  Browse media
+                </span>
+                <span className="dig-file-name">
+                  {selectedFilename || "No file selected"}
+                </span>
+              </span>
             </label>
             <small>JPEG, PNG, WebP, MP4, or WebM. Up to 10 MB and 15 seconds.</small>
             <button className="button" disabled={uploading} type="submit">

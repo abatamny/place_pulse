@@ -2971,3 +2971,237 @@ button:focus-visible {
     animation: none;
   }
 }
+
+/* Purposeful interaction motion */
+
+.button,
+.icon-button,
+.map-nav button,
+.topbar-action,
+.profile-button,
+.forum-mode-tabs button,
+.dm-conversations button,
+.dm-search-results button,
+.memory-summary-button,
+.forum-summary-button,
+.map-dig-add,
+.dig-map-empty {
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.button:active:not(:disabled),
+.map-dig-add:active:not(:disabled),
+.dig-map-empty:active:not(:disabled) {
+  transform: translateY(1px) scale(0.985);
+}
+
+.knock-message,
+.dm-message {
+  animation: message-rise 180ms cubic-bezier(0.2, 0.75, 0.3, 1) both;
+}
+
+.explore-memory-summary,
+.forum-post-summary {
+  animation: feed-card-rise 190ms ease-out both;
+}
+
+.map-overlay,
+.dig-expanded-card,
+.content-detail-window,
+.forum-create-window {
+  animation: surface-fade 160ms ease-out both;
+}
+
+.dig-upload-popover,
+.message-drawer,
+.chat-window,
+.profile-menu {
+  animation: panel-rise 180ms cubic-bezier(0.2, 0.75, 0.3, 1) both;
+}
+
+.dig-map-marker {
+  animation: marker-arrive 200ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+.unread-badge,
+.live-badge {
+  animation: badge-pop 180ms ease-out both;
+}
+
+.dig-file-field {
+  gap: 0.5rem;
+}
+
+.dig-file-picker {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem;
+  border: 1px dashed #a9bbb1;
+  border-radius: 0.75rem;
+  background: #f7faf8;
+  color: #173b34;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.dig-file-picker:hover {
+  border-color: #638a7b;
+  background: #f0f6f2;
+}
+
+.dig-file-picker:focus-within {
+  border-color: #28745f;
+  box-shadow: 0 0 0 3px rgb(40 116 95 / 15%);
+}
+
+.dig-file-picker input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.dig-file-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.55rem;
+  background: #173b34;
+  color: #fff;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.dig-file-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #65766f;
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes message-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.55rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes feed-card-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.4rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes surface-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes panel-rise {
+  from {
+    opacity: 0;
+    translate: 0 0.45rem;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes marker-arrive {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 0.4rem)) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes badge-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.65);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 480px) {
+  .dig-file-picker {
+    grid-template-columns: 1fr;
+  }
+
+  .dig-file-action {
+    justify-content: center;
+  }
+
+  .dig-file-name {
+    padding: 0 0.15rem 0.1rem;
+    text-align: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .knock-message,
+  .dm-message,
+  .explore-memory-summary,
+  .forum-post-summary,
+  .map-overlay,
+  .dig-expanded-card,
+  .content-detail-window,
+  .forum-create-window,
+  .dig-upload-popover,
+  .message-drawer,
+  .chat-window,
+  .profile-menu,
+  .dig-map-marker,
+  .unread-badge,
+  .live-badge {
+    animation: none;
+  }
+
+  .button,
+  .icon-button,
+  .map-nav button,
+  .topbar-action,
+  .profile-button,
+  .forum-mode-tabs button,
+  .dm-conversations button,
+  .dm-search-results button,
+  .memory-summary-button,
+  .forum-summary-button,
+  .map-dig-add,
+  .dig-map-empty,
+  .dig-file-picker {
+    transition: none;
+  }
+}
