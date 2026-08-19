@@ -31,7 +31,7 @@ The defaults work without creating an `.env` file. To change them, copy `.env.ex
 | Variable | Default | Purpose |
 |---|---|---|
 | `APP_PORT` | `8080` | Public application port |
-| `APP_ENV` | `development` | Runtime environment label; verification delivery does not depend on it |
+| `APP_ENV` | `development` | Runtime environment label |
 | `VERIFICATION_SECRET` | local development value | Hashes temporary verification codes; change it outside localhost |
 | `SMS_PROVIDER` | empty | Leave empty to show a demo code, or set to `twilio` to send SMS |
 | `TWILIO_ACCOUNT_SID` | empty | Twilio account identifier, required when `SMS_PROVIDER=twilio` |
