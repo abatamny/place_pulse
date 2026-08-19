@@ -11,6 +11,11 @@ class Settings:
     verification_secret: str = os.getenv(
         "VERIFICATION_SECRET", "local-development-secret"
     )
+    sms_provider: str = os.getenv("SMS_PROVIDER", "")
+    twilio_account_sid: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+    twilio_auth_token: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+    twilio_from_number: str = os.getenv("TWILIO_FROM_NUMBER", "")
+    sms_timeout_seconds: float = float(os.getenv("SMS_TIMEOUT_SECONDS", "8"))
     osm_user_agent: str = os.getenv(
         "OSM_USER_AGENT", "PlacePulse-Course-Project/0.1"
     )

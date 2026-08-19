@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import logging
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -30,9 +31,12 @@ from app.schemas import (
     UserResponse,
     VerifyRegistrationRequest,
 )
+from app.sms import SMSConfigurationError, SMSDeliveryError, get_sms_provider
 
 AUTH_CODE_LIFETIME = timedelta(minutes=10)
 AUTH_SESSION_LIFETIME = timedelta(days=7)
+
+logger = logging.getLogger(__name__)
 
 auth_router = APIRouter(prefix="/api/auth", tags=["authentication"])
 websocket_router = APIRouter()
@@ -123,6 +127,15 @@ def start_registration(
     payload: RegisterStartRequest, request: Request
 ) -> RegisterStartResponse:
     auth_rate_limiter.check(request, "register")
+    try:
+        sms_provider = get_sms_provider()
+    except SMSConfigurationError as exc:
+        logger.error("SMS provider configuration is invalid: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="SMS verification is temporarily unavailable",
+        ) from exc
+
     code = f"{secrets.randbelow(1_000_000):06d}"
 
     user = User(
@@ -142,7 +155,7 @@ def start_registration(
 
         db.add(user)
         try:
-            db.commit()
+            db.flush()
         except IntegrityError as exc:
             db.rollback()
             raise HTTPException(
@@ -150,10 +163,27 @@ def start_registration(
                 detail="A user with this phone number already exists",
             ) from exc
 
-    development_code = code if settings.app_env == "development" else None
+        if sms_provider is not None:
+            try:
+                sms_provider.send_verification_code(payload.phone, code)
+            except SMSDeliveryError as exc:
+                db.rollback()
+                logger.warning("Verification SMS delivery failed", exc_info=True)
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Verification SMS could not be sent. Try again later.",
+                ) from exc
+
+        db.commit()
+
+    demo_code = code if sms_provider is None else None
     return RegisterStartResponse(
-        message="Enter the verification code to finish registration",
-        verification_code=development_code,
+        message=(
+            "Use the displayed demo code to finish registration"
+            if sms_provider is None
+            else "A verification code was sent by SMS"
+        ),
+        verification_code=demo_code,
     )
 
 
@@ -257,4 +287,3 @@ async def websocket_auth_check(websocket: WebSocket) -> None:
         }
     )
     await websocket.close()
-

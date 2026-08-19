@@ -2562,7 +2562,7 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(Boolean(token));
   const [pendingPhone, setPendingPhone] = useState("");
-  const [developmentCode, setDevelopmentCode] = useState<string | null>(null);
+  const [demoCode, setDemoCode] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -2612,7 +2612,7 @@ function App() {
         },
       );
       setPendingPhone(phone);
-      setDevelopmentCode(response.verification_code);
+      setDemoCode(response.verification_code);
       setNotice(response.message);
       setView("verify");
     } catch (caught) {
@@ -2636,7 +2636,7 @@ function App() {
           code: String(form.get("code") || ""),
         }),
       });
-      setDevelopmentCode(null);
+      setDemoCode(null);
       setNotice("Phone verified. You can now log in.");
       setView("login");
     } catch (caught) {
@@ -2810,10 +2810,14 @@ function App() {
             <form onSubmit={handleVerify}>
               <p className="eyebrow">One more step</p>
               <h2>Verify your phone</h2>
-              <p className="form-copy">Code sent for {pendingPhone}.</p>
-              {developmentCode && (
+              <p className="form-copy">
+                {demoCode
+                  ? `Use the demo code shown below for ${pendingPhone}.`
+                  : `Code sent by SMS to ${pendingPhone}.`}
+              </p>
+              {demoCode && (
                 <p className="development-code">
-                  Local verification code: <strong>{developmentCode}</strong>
+                  Demo verification code: <strong>{demoCode}</strong>
                 </p>
               )}
               <label>

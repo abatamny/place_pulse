@@ -26,9 +26,9 @@ function Assert-LastExitCode([string]$Action) {
 
 $projectName = "placepulse-step9-$PID"
 $previousPort = $env:APP_PORT
-$previousAppEnvironment = $env:APP_ENV
+$previousSmsProvider = $env:SMS_PROVIDER
 $env:APP_PORT = $Port
-$env:APP_ENV = 'development'
+$env:SMS_PROVIDER = ''
 $baseUrl = "http://localhost:$Port"
 $healthUrl = "http://localhost:$Port/api/health"
 
@@ -74,7 +74,7 @@ try {
             password = 'course-password'
         } | ConvertTo-Json)
     if (-not $registration.verification_code) {
-        throw 'The isolated development registration did not return a verification code.'
+        throw 'Registration without an SMS provider did not return a demo verification code.'
     }
 
     Invoke-RestMethod `
@@ -124,10 +124,10 @@ finally {
     else {
         $env:APP_PORT = $previousPort
     }
-    if ($null -eq $previousAppEnvironment) {
-        Remove-Item Env:APP_ENV -ErrorAction SilentlyContinue
+    if ($null -eq $previousSmsProvider) {
+        Remove-Item Env:SMS_PROVIDER -ErrorAction SilentlyContinue
     }
     else {
-        $env:APP_ENV = $previousAppEnvironment
+        $env:SMS_PROVIDER = $previousSmsProvider
     }
 }

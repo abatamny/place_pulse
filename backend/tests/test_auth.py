@@ -5,6 +5,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.database import SessionLocal
 from app.models import User
+from app.sms import SMSDeliveryError
 
 
 def register_and_verify(
@@ -64,6 +65,71 @@ def test_successful_registration_login_and_logout(client: TestClient) -> None:
     logout = client.post("/api/auth/logout", headers=headers)
     assert logout.status_code == 204
     assert client.get("/api/auth/me", headers=headers).status_code == 401
+
+
+def test_configured_sms_provider_sends_and_hides_verification_code(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: dict[str, str] = {}
+
+    class RecordingSMSProvider:
+        def send_verification_code(self, phone: str, code: str) -> None:
+            sent["phone"] = phone
+            sent["code"] = code
+
+    monkeypatch.setattr(
+        "app.auth.get_sms_provider", lambda: RecordingSMSProvider()
+    )
+
+    registration = client.post(
+        "/api/auth/register",
+        json={
+            "phone": "+972500000002",
+            "nickname": "SMS User",
+            "password": "course-password",
+        },
+    )
+
+    assert registration.status_code == 201
+    assert registration.json()["verification_code"] is None
+    assert registration.json()["message"] == "A verification code was sent by SMS"
+    assert sent["phone"] == "+972500000002"
+    assert len(sent["code"]) == 6
+    assert sent["code"].isdigit()
+
+    verification = client.post(
+        "/api/auth/verify",
+        json={"phone": sent["phone"], "code": sent["code"]},
+    )
+    assert verification.status_code == 200
+
+
+def test_sms_delivery_failure_rolls_back_registration(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FailingSMSProvider:
+        def send_verification_code(self, phone: str, code: str) -> None:
+            raise SMSDeliveryError("provider unavailable")
+
+    monkeypatch.setattr("app.auth.get_sms_provider", lambda: FailingSMSProvider())
+
+    registration = client.post(
+        "/api/auth/register",
+        json={
+            "phone": "+972500000003",
+            "nickname": "Failed SMS User",
+            "password": "course-password",
+        },
+    )
+
+    assert registration.status_code == 503
+    assert registration.json()["detail"] == (
+        "Verification SMS could not be sent. Try again later."
+    )
+    with SessionLocal() as db:
+        assert (
+            db.scalar(select(User).where(User.phone == "+972500000003")) is None
+        )
 
 
 def test_duplicate_phone_number_is_rejected(client: TestClient) -> None:

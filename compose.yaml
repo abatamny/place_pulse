@@ -21,6 +21,11 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-development}
       VERIFICATION_SECRET: ${VERIFICATION_SECRET:-local-development-secret}
+      SMS_PROVIDER: ${SMS_PROVIDER:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+      SMS_TIMEOUT_SECONDS: ${SMS_TIMEOUT_SECONDS:-8}
       OSM_USER_AGENT: ${OSM_USER_AGENT:-PlacePulse-Course-Project/0.1}
       NOMINATIM_URL: ${NOMINATIM_URL:-https://nominatim.openstreetmap.org}
       OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api}

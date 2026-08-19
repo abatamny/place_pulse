@@ -13,6 +13,7 @@ TEST_DATABASE_NAME = os.getenv("TEST_POSTGRES_DB", "placepulse_test")
 TEST_MEDIA_ROOT = Path(os.getenv("TEST_MEDIA_ROOT", "/tmp/placepulse-test-media"))
 os.environ["POSTGRES_DB"] = TEST_DATABASE_NAME
 os.environ["MEDIA_ROOT"] = str(TEST_MEDIA_ROOT)
+os.environ["SMS_PROVIDER"] = ""
 
 
 def ensure_test_database() -> None:
