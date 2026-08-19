@@ -15,6 +15,7 @@ from app.osm import (
     ResolvedPlace,
     get_place_resolver,
 )
+from app.place_labels import place_display_name
 from app.rate_limit import AuthRateLimiter
 from app.schemas import CoordinatesRequest, CurrentPlaceResponse, PresenceResponse
 
@@ -65,6 +66,7 @@ def save_resolved_places(
                 osm_type=resolved.osm_type,
                 osm_id=resolved.osm_id,
                 name=resolved.name,
+                locality=resolved.locality,
                 boundary=boundary,
                 center_lat=resolved.center_lat,
                 center_lon=resolved.center_lon,
@@ -73,6 +75,8 @@ def save_resolved_places(
             db.add(place)
         else:
             place.name = resolved.name
+            if resolved.locality is not None:
+                place.locality = resolved.locality
             place.center_lat = resolved.center_lat
             place.center_lon = resolved.center_lon
             place.radius_m = resolved.radius_m
@@ -183,11 +187,13 @@ def update_presence(
         memberships[place.id] = ensure_membership(db, user_id, place.id)
 
     db.flush()
-    return presence_response(places, memberships)
+    return presence_response(db, places, memberships)
 
 
 def presence_response(
-    places: list[Place], memberships: dict[int, PlaceMembership]
+    db: Session,
+    places: list[Place],
+    memberships: dict[int, PlaceMembership],
 ) -> PresenceResponse:
     return PresenceResponse(
         places=[
@@ -196,6 +202,8 @@ def presence_response(
                 osm_type=place.osm_type,
                 osm_id=place.osm_id,
                 name=place.name,
+                locality=place.locality,
+                display_name=place_display_name(db, place),
                 parent_place_id=place.parent_place_id,
                 rank=memberships[place.id].rank,
                 completed_visits=memberships[place.id].completed_visits,
@@ -273,7 +281,7 @@ def current_presence(auth: AuthContext = Depends(require_auth)) -> PresenceRespo
             for place in places
         }
         db.commit()
-        return presence_response(places, memberships)
+        return presence_response(db, places, memberships)
 
 
 @places_router.post("/leave", status_code=status.HTTP_204_NO_CONTENT)

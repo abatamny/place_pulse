@@ -18,6 +18,7 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.ai import (
     AIAdapter,
@@ -31,6 +32,7 @@ from app.database import SessionLocal
 from app.jobs import queue_explore_cluster_check
 from app.knock import user_is_present
 from app.models import Dig, Place, User
+from app.place_labels import place_display_name
 from app.rate_limit import AuthRateLimiter
 from app.schemas import DigFeedResponse, DigResponse
 
@@ -224,12 +226,16 @@ def validate_video(data: bytes, content_type: str) -> list[ImageModerationInput]
 
 
 def dig_response(
-    dig: Dig, place_name: str, nickname: str
+    db: Session,
+    dig: Dig,
+    place: Place,
+    nickname: str,
 ) -> DigResponse:
     return DigResponse(
         id=dig.id,
         place_id=dig.place_id,
-        place_name=place_name,
+        place_name=place.name,
+        place_display_name=place_display_name(db, place),
         user_id=dig.user_id,
         nickname=nickname,
         media_type=dig.media_type,
@@ -316,7 +322,7 @@ async def upload_dig(
             queue_explore_cluster_check(db, place_id, auth.user.id)
             db.commit()
             db.refresh(dig)
-            return dig_response(dig, place.name, auth.user.nickname)
+            return dig_response(db, dig, place, auth.user.nickname)
     except Exception:
         media_path.unlink(missing_ok=True)
         raise
@@ -330,7 +336,7 @@ def dig_feed(
     require_place_presence(auth.user.id, place_id)
     with SessionLocal() as db:
         rows = db.execute(
-            select(Dig, Place.name, User.nickname)
+            select(Dig, Place, User.nickname)
             .join(Place, Place.id == Dig.place_id)
             .join(User, User.id == Dig.user_id)
             .where(
@@ -342,8 +348,8 @@ def dig_feed(
         ).all()
         return DigFeedResponse(
             digs=[
-                dig_response(dig, place_name, nickname)
-                for dig, place_name, nickname in rows
+                dig_response(db, dig, place, nickname)
+                for dig, place, nickname in rows
             ]
         )
 

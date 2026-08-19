@@ -19,6 +19,7 @@ from app.models import (
     Presence,
     User,
 )
+from app.place_labels import place_display_name
 from app.places import PRESENCE_TTL
 from app.rate_limit import AuthRateLimiter
 from app.schemas import (
@@ -188,6 +189,7 @@ def memory_response(
         id=memory.id,
         place_id=memory.place_id,
         place_name=place.name if place is not None else "Unknown place",
+        place_display_name=place_display_name(db, place),
         place_names=place_hierarchy_names(db, place) or ["Unknown place"],
         participant_count=int(participant_count or 0),
         created_at=memory.created_at,

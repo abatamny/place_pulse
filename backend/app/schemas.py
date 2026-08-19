@@ -75,6 +75,8 @@ class CurrentPlaceResponse(BaseModel):
     osm_type: str
     osm_id: int
     name: str
+    locality: str | None
+    display_name: str
     parent_place_id: int | None
     rank: str
     completed_visits: int
@@ -102,6 +104,7 @@ class KnockMessageResponse(BaseModel):
     id: int
     place_id: int
     place_name: str
+    place_display_name: str
     user_id: int
     nickname: str
     author_rank: str
@@ -117,6 +120,7 @@ class DigResponse(BaseModel):
     id: int
     place_id: int
     place_name: str
+    place_display_name: str
     user_id: int
     nickname: str
     media_type: str
@@ -167,6 +171,7 @@ class ExploreMemoryResponse(BaseModel):
     id: int
     place_id: int
     place_name: str
+    place_display_name: str
     place_names: list[str]
     participant_count: int
     created_at: datetime
@@ -229,6 +234,7 @@ class ForumPostResponse(BaseModel):
     id: int
     place_id: int
     place_name: str
+    place_display_name: str
     user_id: int | None
     nickname: str
     is_anonymous: bool

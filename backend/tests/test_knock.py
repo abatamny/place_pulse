@@ -68,12 +68,18 @@ def fake_ai() -> FakeKnockAI:
     app.dependency_overrides.pop(get_ai_adapter, None)
 
 
-def create_place(name: str, osm_id: int, parent_place_id: int | None = None) -> int:
+def create_place(
+    name: str,
+    osm_id: int,
+    parent_place_id: int | None = None,
+    locality: str | None = None,
+) -> int:
     with SessionLocal() as db:
         place = Place(
             osm_type="way",
             osm_id=osm_id,
             name=name,
+            locality=locality,
             center_lat=32.0,
             center_lon=35.0,
             radius_m=75,
@@ -143,7 +149,7 @@ def assert_ready(websocket) -> None:
 def test_same_place_users_receive_live_message(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:
-    place_id = create_place("Course Library", 2001)
+    place_id = create_place("Course Library", 2001, locality="Haifa")
     sender = create_present_user("0500001001", "Sender", [place_id])
     recipient = create_present_user("0500001002", "Recipient", [place_id])
 
@@ -160,6 +166,7 @@ def test_same_place_users_receive_live_message(
     assert sent["message"]["id"] == received["message"]["id"]
     assert received["message"]["text"] == "Study group?"
     assert received["message"]["place_id"] == place_id
+    assert received["message"]["place_display_name"] == "Course Library, Haifa"
 
 
 def test_cross_place_rooms_are_isolated(

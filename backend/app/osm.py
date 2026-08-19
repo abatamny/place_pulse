@@ -17,6 +17,7 @@ class ResolvedPlace:
     name: str
     center_lat: float
     center_lon: float
+    locality: str | None = None
     boundary_geojson: dict[str, Any] | None = None
     radius_m: float = 75.0
     parent_key: tuple[str, int] | None = None
@@ -32,6 +33,16 @@ class OSMPlaceResolver:
         try:
             overpass_places = self._resolve_with_overpass(latitude, longitude)
             if overpass_places:
+                if not any(place.locality for place in overpass_places):
+                    try:
+                        fallback = self._resolve_with_nominatim(latitude, longitude)
+                    except (httpx.HTTPError, ValueError, KeyError):
+                        fallback = None
+                    if fallback is not None and fallback.locality:
+                        overpass_places = [
+                            replace(place, locality=fallback.locality)
+                            for place in overpass_places
+                        ]
                 return overpass_places
         except (httpx.HTTPError, ValueError, KeyError) as exc:
             overpass_error = exc
@@ -70,6 +81,7 @@ class OSMPlaceResolver:
             response.raise_for_status()
             elements = response.json().get("elements", [])
 
+        locality = self._locality_from_elements(elements)
         candidates: list[tuple[float, ResolvedPlace]] = []
         seen: set[tuple[str, int]] = set()
         for element in elements:
@@ -106,6 +118,7 @@ class OSMPlaceResolver:
                         name=str(tags["name"])[:200],
                         center_lat=center_lat,
                         center_lon=center_lon,
+                        locality=locality,
                         boundary_geojson=boundary,
                     ),
                 )
@@ -147,6 +160,7 @@ class OSMPlaceResolver:
 
         center_lat = float(data.get("lat", latitude))
         center_lon = float(data.get("lon", longitude))
+        locality = self._locality_from_address(data.get("address", {}))
         geojson = data.get("geojson")
         boundary = (
             geojson
@@ -160,8 +174,53 @@ class OSMPlaceResolver:
             name=str(name)[:200],
             center_lat=center_lat,
             center_lon=center_lon,
+            locality=locality,
             boundary_geojson=boundary,
         )
+
+    @staticmethod
+    def _locality_from_address(address: Any) -> str | None:
+        if not isinstance(address, dict):
+            return None
+        for key in ("city", "town", "village", "municipality"):
+            value = address.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:200]
+        return None
+
+    @classmethod
+    def _locality_from_elements(cls, elements: list[dict[str, Any]]) -> str | None:
+        for element in elements:
+            tags = element.get("tags", {})
+            locality = cls._locality_from_address(
+                {
+                    "city": tags.get("addr:city"),
+                    "town": tags.get("addr:town"),
+                    "village": tags.get("addr:village"),
+                    "municipality": tags.get("addr:municipality"),
+                }
+            )
+            if locality:
+                return locality
+
+        for element in elements:
+            tags = element.get("tags", {})
+            if tags.get("place") in {"city", "town", "village", "municipality"}:
+                name = tags.get("name")
+                if isinstance(name, str) and name.strip():
+                    return name.strip()[:200]
+
+        for element in elements:
+            tags = element.get("tags", {})
+            name = tags.get("name")
+            if (
+                tags.get("boundary") == "administrative"
+                and str(tags.get("admin_level")) == "8"
+                and isinstance(name, str)
+                and name.strip()
+            ):
+                return name.strip()[:200]
+        return None
 
     @staticmethod
     def _is_relevant_physical_place(tags: dict[str, Any]) -> bool:

@@ -45,12 +45,13 @@ def fake_media_ai() -> FakeMediaAI:
     app.dependency_overrides.pop(get_ai_adapter, None)
 
 
-def create_place(name: str, osm_id: int) -> int:
+def create_place(name: str, osm_id: int, locality: str | None = None) -> int:
     with SessionLocal() as db:
         place = Place(
             osm_type="way",
             osm_id=osm_id,
             name=name,
+            locality=locality,
             center_lat=32.0,
             center_lon=35.0,
             radius_m=75,
@@ -150,7 +151,7 @@ def upload_image(
 def test_approved_image_is_saved_and_appears_in_feed(
     client: TestClient, fake_media_ai: FakeMediaAI
 ) -> None:
-    place_id = create_place("Course Courtyard", 3001)
+    place_id = create_place("Course Courtyard", 3001, locality="Haifa")
     identity = create_present_user("0500003001", "Photographer", [place_id])
     image_data = jpeg_bytes()
 
@@ -161,6 +162,7 @@ def test_approved_image_is_saved_and_appears_in_feed(
     assert body["place_id"] == place_id
     assert body["media_type"] == "image"
     assert body["nickname"] == "Photographer"
+    assert body["place_display_name"] == "Course Courtyard, Haifa"
     assert fake_media_ai.sample_counts == [1]
 
     feed = client.get(

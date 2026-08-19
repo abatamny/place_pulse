@@ -15,6 +15,7 @@ from app.models import (
     Presence,
     User,
 )
+from app.place_labels import place_display_name
 from app.places import PRESENCE_TTL
 from app.rate_limit import AuthRateLimiter
 from app.schemas import (
@@ -133,6 +134,7 @@ def post_response(
         id=post.id,
         place_id=post.place_id,
         place_name=place.name if place is not None else "Unknown place",
+        place_display_name=place_display_name(db, place),
         user_id=None if post.is_anonymous else post.user_id,
         nickname=(
             "Anonymous"

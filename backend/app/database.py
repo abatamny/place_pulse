@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import settings
@@ -17,4 +17,10 @@ def create_schema() -> None:
     from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
-
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE places "
+                "ADD COLUMN IF NOT EXISTS locality VARCHAR(200)"
+            )
+        )

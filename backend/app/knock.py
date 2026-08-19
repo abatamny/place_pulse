@@ -19,6 +19,7 @@ from app.auth import AuthContext, InvalidSessionError, require_auth, resolve_ses
 from app.database import SessionLocal
 from app.jobs import PENDING, TEXT_MODERATION_JOB
 from app.models import AIJob, KnockMessage, Place, PlaceMembership, Presence, User
+from app.place_labels import place_display_name
 from app.places import PRESENCE_TTL, expire_stale_presences
 from app.schemas import KnockHistoryResponse, KnockMessageResponse, KnockSendPayload
 
@@ -37,6 +38,7 @@ def utc_now() -> datetime:
 class ActivePlace:
     id: int
     name: str
+    display_name: str
     parent_place_id: int | None
     rank: str
 
@@ -95,19 +97,19 @@ def active_places_for_user(user_id: int) -> list[ActivePlace]:
                 ),
             )
         ).all()
-        db.commit()
-
-    return order_active_places(
-        [
+        active_places = [
             ActivePlace(
                 id=row.id,
                 name=row.name,
+                display_name=place_display_name(db, db.get(Place, row.id)),
                 parent_place_id=row.parent_place_id,
                 rank=row.rank,
             )
             for row in rows
         ]
-    )
+        db.commit()
+
+    return order_active_places(active_places)
 
 
 def user_is_present(user_id: int, place_id: int) -> bool:
@@ -267,6 +269,7 @@ def save_message(
             id=message.id,
             place_id=message.place_id,
             place_name=place.name,
+            place_display_name=place.display_name,
             user_id=message.user_id,
             nickname=nickname,
             author_rank=message.author_rank,
@@ -374,7 +377,12 @@ async def knock_websocket(
         {
             "type": "ready",
             "places": [
-                {"id": place.id, "name": place.name, "rank": place.rank}
+                {
+                    "id": place.id,
+                    "name": place.name,
+                    "display_name": place.display_name,
+                    "rank": place.rank,
+                }
                 for place in active_places
             ],
         },
@@ -421,7 +429,7 @@ def knock_history(
 
     with SessionLocal() as db:
         rows = db.execute(
-            select(KnockMessage, Place.name, User.nickname)
+            select(KnockMessage, Place, User.nickname)
             .join(Place, Place.id == KnockMessage.place_id)
             .join(User, User.id == KnockMessage.user_id)
             .where(
@@ -432,17 +440,18 @@ def knock_history(
             .limit(HISTORY_LIMIT)
         ).all()
 
-    messages = [
-        KnockMessageResponse(
-            id=row.KnockMessage.id,
-            place_id=row.KnockMessage.place_id,
-            place_name=row.name,
-            user_id=row.KnockMessage.user_id,
-            nickname=row.nickname,
-            author_rank=row.KnockMessage.author_rank,
-            text=row.KnockMessage.text,
-            created_at=row.KnockMessage.created_at,
-        )
-        for row in reversed(rows)
-    ]
-    return KnockHistoryResponse(messages=messages)
+        messages = [
+            KnockMessageResponse(
+                id=message.id,
+                place_id=message.place_id,
+                place_name=place.name,
+                place_display_name=place_display_name(db, place),
+                user_id=message.user_id,
+                nickname=nickname,
+                author_rank=message.author_rank,
+                text=message.text,
+                created_at=message.created_at,
+            )
+            for message, place, nickname in reversed(rows)
+        ]
+        return KnockHistoryResponse(messages=messages)

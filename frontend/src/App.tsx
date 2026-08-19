@@ -31,6 +31,8 @@ type CurrentPlace = {
   osm_type: string;
   osm_id: number;
   name: string;
+  locality: string | null;
+  display_name: string;
   parent_place_id: number | null;
   rank: "VISITOR" | "BELONG";
   completed_visits: number;
@@ -45,6 +47,7 @@ type KnockMessage = {
   id: number;
   place_id: number;
   place_name: string;
+  place_display_name: string;
   user_id: number;
   nickname: string;
   author_rank: "VISITOR" | "BELONG";
@@ -60,6 +63,7 @@ type Dig = {
   id: number;
   place_id: number;
   place_name: string;
+  place_display_name: string;
   user_id: number;
   nickname: string;
   media_type: "image" | "video";
@@ -98,6 +102,7 @@ type ExploreMemory = {
   id: number;
   place_id: number;
   place_name: string;
+  place_display_name: string;
   place_names: string[];
   participant_count: number;
   created_at: string;
@@ -129,6 +134,7 @@ type ForumPost = {
   id: number;
   place_id: number;
   place_name: string;
+  place_display_name: string;
   user_id: number | null;
   nickname: string;
   is_anonymous: boolean;
@@ -161,6 +167,7 @@ type PendingDig = {
   id: number;
   nickname: string;
   place_name: string;
+  place_display_name: string;
   media_type: "image" | "video";
   preview_url: string;
 };
@@ -456,7 +463,7 @@ function PresencePanel({
         <ol className="place-list">
           {places.map((place) => (
             <li key={place.id}>
-              <span>{place.name}</span>
+              <span>{place.display_name}</span>
               <small>{place.rank}</small>
             </li>
           ))}
@@ -661,7 +668,7 @@ function KnockPanel({
 
       <div className="place-chips" aria-label="Active place layers">
         {places.map((place) => (
-          <span key={place.id}>{place.name}</span>
+          <span key={place.id}>{place.display_name}</span>
         ))}
       </div>
 
@@ -680,7 +687,7 @@ function KnockPanel({
               >
                 <div className="message-meta">
                   <strong>{message.nickname}</strong>
-                  <span>{message.place_name}</span>
+                  <span>{message.place_display_name}</span>
                   <time dateTime={message.created_at}>
                     {new Date(message.created_at).toLocaleTimeString([], {
                       hour: "2-digit",
@@ -807,7 +814,7 @@ function DigMedia({
   }
   return (
     <img
-      alt={`DIG shared by ${dig.nickname} at ${dig.place_name}`}
+      alt={`DIG shared by ${dig.nickname} at ${dig.place_display_name}`}
       className={`dig-media dig-media--${variant}`}
       src={source}
     />
@@ -908,6 +915,7 @@ function DigPanel({
       id: -Date.now(),
       nickname: "You",
       place_name: selectedPlace?.name ?? "Nearby place",
+      place_display_name: selectedPlace?.display_name ?? "Nearby place",
       media_type: selectedFile.type.startsWith("video/") ? "video" : "image",
       preview_url: previewUrl,
     });
@@ -981,7 +989,7 @@ function DigPanel({
         const [left, top] = positions[index % positions.length];
         return (
           <button
-            aria-label={`Open DIG by ${dig.nickname} at ${dig.place_name}`}
+            aria-label={`Open DIG by ${dig.nickname} at ${dig.place_display_name}`}
             className="dig-map-marker"
             key={dig.id}
             onClick={() => setSelectedDig(dig)}
@@ -1053,7 +1061,7 @@ function DigPanel({
                 value={selectedPlaceId}
               >
                 {places.map((place) => (
-                  <option key={place.id} value={place.id}>{place.name}</option>
+                  <option key={place.id} value={place.id}>{place.display_name}</option>
                 ))}
               </select>
             </label>
@@ -1097,7 +1105,7 @@ function DigPanel({
           <header className="popover-header">
             <div>
               <strong>{selectedDig.nickname}</strong>
-              <span>{selectedDig.place_name}</span>
+              <span>{selectedDig.place_display_name}</span>
             </div>
             <button
               aria-label="Close DIG"
@@ -1246,7 +1254,7 @@ function ExploreMemoryCard({
 
   const placeNames = memory.place_names?.length
     ? memory.place_names
-    : [memory.place_name];
+    : [memory.place_display_name];
   const participantCount = memory.participant_count
     ?? new Set(memory.digs.map((dig) => dig.user_id)).size;
 
@@ -1267,7 +1275,7 @@ function ExploreMemoryCard({
           </span>
           <span className="memory-summary-copy">
             <span className="memory-summary-heading">
-              <strong>{memory.place_name}</strong>
+              <strong>{memory.place_display_name}</strong>
               <span className="memory-access">
                 {memory.participant ? "Your memory" : "Here now"}
               </span>
@@ -1289,7 +1297,7 @@ function ExploreMemoryCard({
 
       {expanded && (
         <section
-          aria-label={`Memory at ${memory.place_name}`}
+          aria-label={`Memory at ${memory.place_display_name}`}
           aria-modal="true"
           className="content-detail-window memory-detail-window"
           role="dialog"
@@ -1297,7 +1305,7 @@ function ExploreMemoryCard({
           <header className="content-detail-heading">
             <div>
               <p className="eyebrow">Long-term place memory</p>
-              <h2>{memory.place_name}</h2>
+              <h2>{memory.place_display_name}</h2>
             </div>
             <button
               aria-label="Close memory"
@@ -1522,7 +1530,7 @@ function ForumPostCard({
           <span className="forum-summary-main">
             <span className="forum-summary-meta">
               <strong>{post.nickname}{post.is_mine ? " · You" : ""}</strong>
-              <span>{post.place_name}</span>
+              <span>{post.place_display_name}</span>
             </span>
             <strong className="forum-summary-title">{post.title}</strong>
             <span className="forum-summary-excerpt">{post.body}</span>
@@ -1546,7 +1554,7 @@ function ForumPostCard({
         >
           <header className="content-detail-heading">
             <div>
-              <p className="eyebrow">{post.place_name}</p>
+              <p className="eyebrow">{post.place_display_name}</p>
               <h2>{post.title}</h2>
               <span>Posted by {post.nickname}{post.is_mine ? " · You" : ""}</span>
             </div>
@@ -1717,6 +1725,7 @@ function ForumPanel({
       id: pendingId,
       place_id: Number(selectedPlaceId),
       place_name: selectedPlace?.name ?? "Nearby place",
+      place_display_name: selectedPlace?.display_name ?? "Nearby place",
       user_id: isAnonymous ? null : user.id,
       nickname: isAnonymous ? "Anonymous" : user.nickname,
       is_anonymous: isAnonymous,
@@ -1835,7 +1844,7 @@ function ForumPanel({
                 value={selectedPlaceId}
               >
                 {places.map((place) => (
-                  <option key={place.id} value={place.id}>{place.name}</option>
+                  <option key={place.id} value={place.id}>{place.display_name}</option>
                 ))}
               </select>
             </label>
@@ -1894,7 +1903,7 @@ function ForumPanel({
                   <span className="forum-summary-main">
                     <span className="forum-summary-meta">
                       <strong>{post.nickname} · You</strong>
-                      <span>{post.place_name}</span>
+                      <span>{post.place_display_name}</span>
                     </span>
                     <strong className="forum-summary-title">{post.title}</strong>
                     <span className="forum-summary-excerpt">{post.body}</span>
@@ -2412,7 +2421,7 @@ function SignedInApp({
           <span className="brand-mark" aria-hidden="true"><Icon name="compass" size={22} /></span>
           <span>
             <strong>PlacePulse</strong>
-            <small>{primaryPlace ? primaryPlace.name : "Your nearby place"}</small>
+            <small>{primaryPlace ? primaryPlace.display_name : "Your nearby place"}</small>
           </span>
         </div>
 
@@ -2481,7 +2490,7 @@ function SignedInApp({
               <Icon name="locate" size={16} />
               <span className="map-place-copy">
                 <small>Nearby now</small>
-                <strong>{primaryPlace?.name ?? "Location not shared"}</strong>
+                <strong>{primaryPlace?.display_name ?? "Location not shared"}</strong>
               </span>
               {primaryPlace && (
                 <span

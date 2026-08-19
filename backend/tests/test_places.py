@@ -8,7 +8,7 @@ from app.auth import utc_now
 from app.database import SessionLocal
 from app.main import app
 from app.models import Place, PlaceMembership, Presence, Visit
-from app.osm import ResolvedPlace, get_place_resolver
+from app.osm import OSMPlaceResolver, ResolvedPlace, get_place_resolver
 from app.places import PRESENCE_TTL, expire_stale_presences
 
 
@@ -27,6 +27,7 @@ class FakePlaceResolver:
                 name="Course Campus",
                 center_lat=latitude,
                 center_lon=longitude,
+                locality="Haifa",
                 boundary_geojson=polygon(34.99, 31.99, 35.01, 32.01),
             ),
         ]
@@ -38,6 +39,7 @@ class FakePlaceResolver:
                     name="Engineering Building",
                     center_lat=latitude,
                     center_lon=longitude,
+                    locality="Haifa",
                     boundary_geojson=polygon(34.999, 31.999, 35.001, 32.001),
                     parent_key=campus_key,
                 )
@@ -109,6 +111,11 @@ def test_coordinates_resolve_each_heartbeat_and_upsert_places(
     ]
     campus, building = first.json()["places"]
     assert building["parent_place_id"] == campus["id"]
+    assert campus["display_name"] == "Course Campus, Haifa"
+    assert (
+        building["display_name"]
+        == "Engineering Building · Course Campus, Haifa"
+    )
     assert fake_resolver.calls == 1
 
     second = heartbeat(client, headers)
@@ -150,6 +157,38 @@ def test_later_heartbeat_discovers_inner_place_inside_stored_broad_place(
 
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Place)) == 2
+
+
+def test_osm_locality_extraction_prefers_address_then_city_boundary() -> None:
+    assert OSMPlaceResolver._locality_from_elements(
+        [
+            {
+                "tags": {
+                    "name": "Haifa",
+                    "boundary": "administrative",
+                    "admin_level": "8",
+                }
+            },
+            {
+                "tags": {
+                    "name": "Library",
+                    "building": "yes",
+                    "addr:city": "Address Locality",
+                }
+            },
+        ]
+    ) == "Address Locality"
+    assert OSMPlaceResolver._locality_from_elements(
+        [
+            {
+                "tags": {
+                    "name": "Haifa",
+                    "boundary": "administrative",
+                    "admin_level": "8",
+                }
+            },
+        ]
+    ) == "Haifa"
 
 
 def test_stale_presence_records_completed_visits(

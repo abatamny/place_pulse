@@ -50,12 +50,13 @@ def fake_forum_ai():
     app.dependency_overrides.pop(get_ai_adapter, None)
 
 
-def create_place(name: str, osm_id: int) -> int:
+def create_place(name: str, osm_id: int, locality: str | None = None) -> int:
     with SessionLocal() as db:
         place = Place(
             osm_type="way",
             osm_id=osm_id,
             name=name,
+            locality=locality,
             center_lat=32.0,
             center_lon=35.0,
             radius_m=75,
@@ -137,7 +138,7 @@ def test_anonymous_post_hides_identity_and_personal_area_keeps_totals(
     client: TestClient,
     fake_forum_ai: FakeForumAI,
 ) -> None:
-    place_id = create_place("Forum Courtyard", 5001)
+    place_id = create_place("Forum Courtyard", 5001, locality="Haifa")
     author = create_user("0500005001", "Quiet Author", [place_id])
     voter = create_user("0500005002", "Helpful Voter", [place_id])
 
@@ -148,6 +149,7 @@ def test_anonymous_post_hides_identity_and_personal_area_keeps_totals(
     assert post["nickname"] == "Anonymous"
     assert post["user_id"] is None
     assert post["is_mine"] is True
+    assert post["place_display_name"] == "Forum Courtyard, Haifa"
     assert len(fake_forum_ai.calls) == 1
 
     public_feed = client.get(

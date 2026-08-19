@@ -61,12 +61,14 @@ def create_place(
     name: str,
     osm_id: int,
     parent_place_id: int | None = None,
+    locality: str | None = None,
 ) -> int:
     with SessionLocal() as db:
         place = Place(
             osm_type="way",
             osm_id=osm_id,
             name=name,
+            locality=locality,
             center_lat=32.0,
             center_lon=35.0,
             radius_m=75,
@@ -291,8 +293,10 @@ def test_feed_describes_nested_places_and_distinct_participants(
     client: TestClient,
     fake_media_ai,
 ) -> None:
-    campus_id = create_place("Example Campus", 4010)
-    building_id = create_place("Library Building", 4011, campus_id)
+    campus_id = create_place("Example Campus", 4010, locality="Haifa")
+    building_id = create_place(
+        "Library Building", 4011, campus_id, locality="Haifa"
+    )
     first = create_user("0500004010", "First Witness", building_id)
     second = create_user("0500004011", "Second Witness", building_id)
 
@@ -308,6 +312,10 @@ def test_feed_describes_nested_places_and_distinct_participants(
     assert feed.status_code == 200
     memory = feed.json()["memories"][0]
     assert memory["place_names"] == ["Example Campus", "Library Building"]
+    assert (
+        memory["place_display_name"]
+        == "Library Building · Example Campus, Haifa"
+    )
     assert memory["participant_count"] == 2
 
 
