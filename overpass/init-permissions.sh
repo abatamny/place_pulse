@@ -1,5 +1,4 @@
 #!/bin/sh
 
-# The named-volume root is created with owner-only traversal on Docker Desktop.
-# The internal FastCGI worker needs to reach the dispatcher sockets in /db/db.
+# Keep the named-volume root traversable by the internal FastCGI worker.
 chmod 0755 /db
