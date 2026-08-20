@@ -21,7 +21,7 @@ PlacePulse is a mobile-friendly location-based community application. A verified
 - Private one-to-one messages with user search, saved history, unread state, and WebSocket notifications.
 - Local text moderation with `Qwen3Guard-Gen-0.6B`, constrained routing with `Qwen3-0.6B`, image moderation with `image-safety-classifier-s`, and a fair durable PostgreSQL worker queue. External adapters remain optional fallbacks.
 - Course-sized jailbreak robustness through normalized prompt-injection screening, instruction/data separation, output screening, and fail-closed decisions; hallucination robustness through strict schemas, allow lists, server-supplied place facts, hierarchy checks, and rejection of invented or contradictory routes.
-- Optional single-VM Azure deployment helper using the same Compose architecture.
+- Optional single-VM Azure deployment using the same Compose architecture and automatic post-CI updates over SSH.
 
 ## Architecture and important decisions
 
@@ -49,4 +49,4 @@ The system test performs registration, verification, login, location heartbeat, 
 
 The project is designed for one backend process and one VM. Browser geolocation can be spoofed, rate limiting is in memory, direct messages are not end-to-end encrypted, and local volumes are not automatically backed up. Live place heartbeats depend on one locally imported, static Overpass snapshot, while AI-moderated publication depends on sufficient local inference resources and the image classifier covers only SFW/NSFW/NSFL categories. These constraints and proportionate production improvements are detailed in [risk-assessment.md](risk-assessment.md).
 
-Azure provisioning remains a manual billable operation. After that one-time setup, the optional GitHub Actions job uses OIDC and Azure VM Run Command to deploy the exact successful `main` commit automatically. The demonstration video is a submission artifact and must be recorded and linked after the final UI walkthrough.
+Azure VM creation and initial setup remain manual billable operations. After that one-time setup, the optional GitHub Actions job uses a deployment-only SSH key and pinned host key to deploy the exact successful `main` commit automatically. The demonstration video is a submission artifact and must be recorded and linked after the final UI walkthrough.

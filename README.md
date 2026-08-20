@@ -298,57 +298,62 @@ The smoke test builds and starts the stack, waits for the public health endpoint
 
 ## Optional Azure VM deployment
 
-The course-sized Azure path runs the same Docker Compose stack on one Ubuntu VM, so PostgreSQL/PostGIS, media, the backend, worker, and Nginx keep the same architecture. Only SSH and Nginx on port 80 are opened publicly. Initial provisioning creates billable Azure resources and must be run manually.
+The course-sized Azure path runs the same Docker Compose stack on one Ubuntu VM, so PostgreSQL/PostGIS, media, the backend, worker, and Nginx keep the same architecture. Only SSH and Nginx on port 80 need to be opened publicly. Create the billable VM manually in the Azure portal; the repository does not provision Azure resources.
 
 Prerequisites:
 
-- Azure CLI, signed in with `az login` and set to the intended subscription
-- An SSH public key
+- An Ubuntu 24.04 Azure VM with a public IP or DNS name
+- Azure network rules allowing inbound TCP ports 22 and 80
+- An SSH user with `sudo` access
 - The repository available from the public GitHub URL, with the target branch pushed
-- A private environment file outside the repository containing strong `VERIFICATION_SECRET` and `POSTGRES_PASSWORD` values, plus external AI or Twilio settings only if those services are used
+- A private `.env` containing strong `VERIFICATION_SECRET` and `POSTGRES_PASSWORD` values, plus external AI or Twilio settings only if those services are used
 
-Deploy from PowerShell:
+Connect to the new VM and install the application once:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/deploy-azure.ps1 `
-  -ResourceGroup placepulse-course-rg `
-  -VmName placepulse-course `
-  -Location westeurope `
-  -SshPublicKeyPath "C:\path\to\id_ed25519.pub" `
-  -EnvironmentFile "C:\private\placepulse-azure.env"
+```sh
+ssh <user>@<vm-host>
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose-v2 git
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"
+sudo install -d -o "$USER" -g "$USER" /opt/placepulse
+git clone --depth 1 --branch main https://github.com/abatamny/place_pulse.git /opt/placepulse
+exit
 ```
 
-For the default local AI and demo verification flow, the private deployment file needs only:
+Reconnect so the Docker group membership takes effect, then create `/opt/placepulse/.env`. For the default local AI and demo verification flow, it needs:
 
 ```dotenv
 VERIFICATION_SECRET=replace-with-a-long-random-value
 POSTGRES_PASSWORD=replace-with-a-strong-database-password
+APP_PORT=80
 ```
 
-Add the external AI variables from the configuration section only when using an external provider, and add the Twilio block only when sending real SMS messages. The deployment script always adds `APP_PORT=80`; do not put `APP_PORT` in this input file.
+Restrict and start it with:
 
-The environment file is base64-encoded into VM custom data during provisioning and installed as `/opt/placepulse/.env` with root-only permissions. For a course demo, use a dedicated low-value AI key rather than reusing an important production credential. The helper validates repository/branch inputs, starts Compose through cloud-init, prints the public IP, and deletes its temporary rendered cloud-init file.
+```sh
+chmod 600 /opt/placepulse/.env
+cd /opt/placepulse
+docker compose up --build -d
+```
 
-After the VM is provisioned, GitHub Actions can automatically deploy the exact tested `main` commit through Azure VM Run Command. The job uses short-lived OIDC authentication and stays disabled until its GitHub variables and environment secrets are configured. Follow [the automatic Azure deployment setup](docs/azure-auto-deploy.md).
+For a course demo, use dedicated low-value external-service credentials rather than important production credentials. GitHub Actions can automatically deploy the exact tested `main` commit over SSH and remains disabled until its GitHub variables and secrets are configured. Follow [the automatic Azure deployment setup](docs/azure-auto-deploy.md) to add a deployment key and pin the VM host key.
 
 ### GitHub Actions deployment configuration
 
-Create a GitHub environment named exactly `azure-production`, because both the workflow and the Azure federated credential use that environment name. Configure these values:
+Create a GitHub environment named `azure-production` and configure these values:
 
 | GitHub location | Name | Value |
 |---|---|---|
 | Repository variable | `AZURE_DEPLOY_ENABLED` | `true` to enable deployment; use `false` to disable it. |
-| Repository variable | `AZURE_RESOURCE_GROUP` | The resource group passed to `deploy-azure.ps1`. |
-| Repository variable | `AZURE_VM_NAME` | The VM name passed to `deploy-azure.ps1`. |
-| `azure-production` environment secret | `AZURE_CLIENT_ID` | Microsoft Entra application (client) ID. |
-| `azure-production` environment secret | `AZURE_TENANT_ID` | Microsoft Entra directory (tenant) ID. |
-| `azure-production` environment secret | `AZURE_SUBSCRIPTION_ID` | Azure subscription ID containing the VM. |
+| Repository variable | `AZURE_VM_HOST` | The VM's public IPv4 address or DNS name. |
+| Repository variable | `AZURE_VM_USER` | The SSH user that owns `/opt/placepulse` and can run Docker. |
+| `azure-production` environment secret | `AZURE_VM_SSH_PRIVATE_KEY` | A deployment-only private SSH key authorized on the VM. |
+| `azure-production` environment secret | `AZURE_VM_KNOWN_HOSTS` | A verified `known_hosts` entry for the VM. |
 
-Add repository variables under **Settings > Secrets and variables > Actions > Variables**. Add the three secrets under **Settings > Environments > azure-production > Environment secrets**. Do not add an `AZURE_CLIENT_SECRET`; the workflow uses GitHub OIDC instead.
+The VM copy of `/opt/placepulse/.env` remains outside Git, and normal deployments preserve it along with the PostgreSQL, media, model, and Overpass volumes. The workflow performs the fetch, Compose rebuild, and health check directly over SSH; it needs no Azure service principal, federated credential, or Azure client secrets.
 
-One-time Azure setup is also required: create a federated credential for organization `abatamny`, repository `place_pulse`, entity type **Environment**, and environment `azure-production`; then grant that service principal **Virtual Machine Contributor** on this VM only. The [automatic deployment guide](docs/azure-auto-deploy.md) contains the full sequence. The VM's application secrets and AI keys remain in `/opt/placepulse/.env`; they are not GitHub Actions variables, and deployments preserve that file.
-
-When the demo is finished, remove the Azure resource group from the portal or with `az group delete --name placepulse-course-rg`. This permanently deletes the VM and its stored database/media volumes.
+When the demo is finished, delete the Azure resource group in the portal. This permanently deletes the VM and its stored database/media volumes.
 
 ## Final project documents
 

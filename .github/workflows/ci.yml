@@ -95,41 +95,87 @@ jobs:
     concurrency:
       group: azure-production
       cancel-in-progress: false
-    permissions:
-      contents: read
-      id-token: write
+    permissions: {}
     env:
-      AZURE_CORE_OUTPUT: none
-      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-      AZURE_VM_NAME: ${{ vars.AZURE_VM_NAME }}
+      AZURE_VM_HOST: ${{ vars.AZURE_VM_HOST }}
+      AZURE_VM_USER: ${{ vars.AZURE_VM_USER }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Sign in to Azure with OIDC
-        uses: azure/login@v3
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Deploy tested commit to the VM
+      - name: Deploy tested commit over SSH
         env:
           DEPLOY_COMMIT: ${{ github.sha }}
+          AZURE_VM_SSH_PRIVATE_KEY: ${{ secrets.AZURE_VM_SSH_PRIVATE_KEY }}
+          AZURE_VM_KNOWN_HOSTS: ${{ secrets.AZURE_VM_KNOWN_HOSTS }}
         run: |
-          if [[ -z "$AZURE_RESOURCE_GROUP" || -z "$AZURE_VM_NAME" ]]; then
-            echo "Azure deployment variables are not configured." >&2
+          set -euo pipefail
+
+          if [[ -z "$AZURE_VM_HOST" || -z "$AZURE_VM_USER" || \
+                -z "$AZURE_VM_SSH_PRIVATE_KEY" || -z "$AZURE_VM_KNOWN_HOSTS" ]]; then
+            echo "Azure SSH deployment variables or secrets are not configured." >&2
+            exit 1
+          fi
+          if [[ ! "$AZURE_VM_HOST" =~ ^[A-Za-z0-9.-]+$ ]]; then
+            echo "AZURE_VM_HOST must be an IPv4 address or DNS name." >&2
+            exit 1
+          fi
+          if [[ ! "$AZURE_VM_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
+            echo "AZURE_VM_USER is invalid." >&2
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "A full Git commit SHA is required." >&2
             exit 1
           fi
 
-          az vm show \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --name "$AZURE_VM_NAME" \
-            --output none
+          ssh_dir="$HOME/.ssh"
+          private_key="$ssh_dir/placepulse_deploy"
+          known_hosts="$ssh_dir/known_hosts"
+          install -m 700 -d "$ssh_dir"
+          printf '%s\n' "$AZURE_VM_SSH_PRIVATE_KEY" | tr -d '\r' > "$private_key"
+          printf '%s\n' "$AZURE_VM_KNOWN_HOSTS" | tr -d '\r' > "$known_hosts"
+          chmod 600 "$private_key" "$known_hosts"
+          trap 'rm -f "$private_key" "$known_hosts"' EXIT
 
-          deployment_script="$(< deploy/azure/update-vm.sh)"
-          az vm run-command invoke \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --name "$AZURE_VM_NAME" \
-            --command-id RunShellScript \
-            --scripts "$deployment_script" \
-            --parameters "$DEPLOY_COMMIT" \
-            --query "value[0].message" \
-            --output tsv
+          ssh \
+            -i "$private_key" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$known_hosts" \
+            "$AZURE_VM_USER@$AZURE_VM_HOST" \
+            "sh -s -- '$DEPLOY_COMMIT'" <<'REMOTE_SCRIPT'
+          set -eu
+
+          commit_sha="$1"
+          repository_dir="/opt/placepulse"
+
+          if [ ! -d "$repository_dir/.git" ] || [ ! -f "$repository_dir/.env" ]; then
+            echo "PlacePulse must be installed in $repository_dir before automatic deployment." >&2
+            exit 2
+          fi
+
+          cd "$repository_dir"
+          git fetch --depth=1 origin "$commit_sha"
+          git reset --hard FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$commit_sha"
+
+          docker compose up --build -d --remove-orphans
+
+          attempt=1
+          while [ "$attempt" -le 60 ]; do
+            if docker compose exec -T web \
+              wget -qO- http://127.0.0.1/api/health 2>/dev/null \
+              | grep -q '"status":"ok"'; then
+              docker compose ps
+              echo "Deployed and verified commit $commit_sha."
+              exit 0
+            fi
+            sleep 2
+            attempt=$((attempt + 1))
+          done
+
+          docker compose ps
+          docker compose logs --tail=150
+          echo "The deployment did not become healthy in time." >&2
+          exit 1
+          REMOTE_SCRIPT
