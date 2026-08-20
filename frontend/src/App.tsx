@@ -3822,7 +3822,7 @@ function SignedInApp({
             type="button"
           >
             <Icon name="compass" size={18} />
-            Explore
+            <span>Explore</span>
           </button>
           <button
             className={activeOverlay === "forum" ? "active" : ""}
@@ -3830,19 +3830,11 @@ function SignedInApp({
             type="button"
           >
             <Icon name="forum" size={18} />
-            Forum
+            <span>Forum</span>
           </button>
         </nav>
 
         <div className="topbar-actions">
-          <button
-            aria-label={knockOpen ? "Close KNOCK" : "Open KNOCK"}
-            className={`topbar-action topbar-action--knock ${knockOpen ? "active" : ""}`}
-            onClick={toggleKnock}
-            type="button"
-          >
-            <Icon name="knock" size={20} />
-          </button>
           <button
             aria-label={dmUnread ? `Messages, ${dmUnread} unread` : "Messages"}
             className={`topbar-action ${messagesOpen ? "active" : ""}`}
@@ -3881,31 +3873,42 @@ function SignedInApp({
       </header>
 
       <div className="map-workspace">
+        <div className="map-location-bar">
+          <div className="map-place-label">
+            <Icon name="locate" size={16} />
+            <span className="map-place-copy">
+              <small>
+                {activeScope
+                  ? `Active ${scopeClassLabel(activeScope.scope_class)} scope`
+                  : "Nearby now"}
+              </small>
+              <strong>{activeScope?.display_name ?? "Location not shared"}</strong>
+              {primaryPlace && activeScope?.id !== primaryPlace.id && (
+                <em>Physically at {primaryPlace.name}</em>
+              )}
+            </span>
+            {activeScope && (
+              <span
+                aria-label={`Place status: ${activeScope.rank}`}
+                className={`map-place-rank map-place-rank--${activeScope.rank.toLowerCase()}`}
+              >
+                {activeScope.rank}
+              </span>
+            )}
+          </div>
+          <div className="map-location-control">
+            <PresencePanel
+              onNearbyUsersChange={setNearbyUsers}
+              onPlacesChange={setPlaces}
+              places={places}
+              token={token}
+            />
+          </div>
+        </div>
+
         <section className="map-main" aria-label="Nearby activity map">
           <div className="map-canvas">
             <MapTexture />
-            <div className="map-place-label">
-              <Icon name="locate" size={16} />
-              <span className="map-place-copy">
-                <small>
-                  {activeScope
-                    ? `Active ${scopeClassLabel(activeScope.scope_class)} scope`
-                    : "Nearby now"}
-                </small>
-                <strong>{activeScope?.display_name ?? "Location not shared"}</strong>
-                {primaryPlace && activeScope?.id !== primaryPlace.id && (
-                  <em>Physically at {primaryPlace.name}</em>
-                )}
-              </span>
-              {activeScope && (
-                <span
-                  aria-label={`Place status: ${activeScope.rank}`}
-                  className={`map-place-rank map-place-rank--${activeScope.rank.toLowerCase()}`}
-                >
-                  {activeScope.rank}
-                </span>
-              )}
-            </div>
 
             {places.map((place, index) => {
               const dimensions = orbitDimensions(index, places.length);
@@ -4028,14 +4031,6 @@ function SignedInApp({
               );
             })}
 
-            <div className="map-location-control">
-              <PresencePanel
-                onNearbyUsersChange={setNearbyUsers}
-                onPlacesChange={setPlaces}
-                places={places}
-                token={token}
-              />
-            </div>
             <DigPanel
               activeScope={activeScope}
               places={places}
@@ -4076,6 +4071,15 @@ function SignedInApp({
             user={user}
           />
         </aside>
+
+        <button
+          aria-label={knockOpen ? "Close KNOCK" : "Open KNOCK"}
+          className={`knock-fab ${knockOpen ? "knock-fab--active" : ""}`}
+          onClick={toggleKnock}
+          type="button"
+        >
+          <Icon name="knock" size={22} />
+        </button>
       </div>
 
       <DMPanel
