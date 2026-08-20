@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.auth import auth_router, websocket_router
+from app.attachments import attachments_router
 from app.config import settings
 from app.database import SessionLocal, create_schema
 from app.digs import digs_router
@@ -43,6 +44,7 @@ app.include_router(dm_router)
 app.include_router(dm_websocket_router)
 app.include_router(explore_router)
 app.include_router(forum_router)
+app.include_router(attachments_router)
 
 
 @app.get("/api/health")

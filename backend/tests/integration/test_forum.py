@@ -1,13 +1,16 @@
+import io
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlalchemy import delete, func, select
 
 from app.ai import (
     ModerationDecision,
+    ImageModerationInput,
     PlaceRouteOption,
     RoutingDecision,
     get_ai_adapter,
@@ -20,6 +23,7 @@ from app.models import (
     ForumComment,
     ForumPost,
     ForumVote,
+    MediaAttachment,
     Place,
     PlaceMembership,
     Presence,
@@ -43,13 +47,23 @@ class FakeForumAI:
             reason="Forum content is suitable",
             categories=[],
         )
+        self.media_decision = ModerationDecision(
+            approved=True,
+            reason="Forum media is suitable",
+            categories=[],
+        )
         self.calls: list[str] = []
         self.route_place_id: int | None = None
         self.route_calls = 0
+        self.media_calls = 0
 
     async def moderate_text(self, text: str) -> object:
         self.calls.append(text)
         return self.decision
+
+    async def moderate_images(self, images: list[ImageModerationInput]) -> object:
+        self.media_calls += 1
+        return self.media_decision
 
     async def route_forum_post(
         self, text: str, places: list[PlaceRouteOption]
@@ -138,6 +152,12 @@ def create_user(
 
 def auth_headers(identity: SessionIdentity) -> dict[str, str]:
     return {"Authorization": f"Bearer {identity.token}"}
+
+
+def jpeg_bytes() -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (80, 60), (70, 150, 110)).save(output, format="JPEG")
+    return output.getvalue()
 
 
 def create_post(
@@ -293,7 +313,7 @@ def test_presence_and_moderation_are_required_before_publication(
         )
         db.commit()
 
-    fake_forum_ai.decision = ModerationDecision(
+    fake_forum_ai.media_decision = ModerationDecision(
         approved=False,
         reason="Harassing content",
         categories=["harassment"],
@@ -390,3 +410,72 @@ def test_location_feed_uses_only_the_selected_scope_and_excludes_others(
     assert [post["id"] for post in building_feed.json()["posts"]] == [
         building_post.json()["id"]
     ]
+
+
+def test_post_and_comment_media_are_moderated_saved_and_returned(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+) -> None:
+    place_id = create_place("Media Forum", 5030)
+    author = create_user("0500005030", "Media Author", [place_id])
+    commenter = create_user("0500005031", "Media Commenter", [place_id])
+
+    post = client.post(
+        "/api/forum/posts/with-media",
+        headers=auth_headers(author),
+        data={
+            "place_id": str(place_id),
+            "title": "Photo from the courtyard",
+            "body": "This was taken after class.",
+            "is_anonymous": "false",
+        },
+        files={"file": ("courtyard.jpg", jpeg_bytes(), "image/jpeg")},
+    )
+    assert post.status_code == 201
+    post_body = post.json()
+    assert post_body["media"]["media_type"] == "image"
+    assert client.get(
+        post_body["media"]["media_url"], headers=auth_headers(author)
+    ).status_code == 200
+
+    comment = client.post(
+        f"/api/forum/posts/{post_body['id']}/comments/with-media",
+        headers=auth_headers(commenter),
+        data={"text": "Here is another angle."},
+        files={"file": ("angle.jpg", jpeg_bytes(), "image/jpeg")},
+    )
+    assert comment.status_code == 201
+    assert comment.json()["media"]["original_filename"] == "angle.jpg"
+    feed_post = client.get(
+        f"/api/forum?place_id={place_id}", headers=auth_headers(author)
+    ).json()["posts"][0]
+    assert feed_post["media"]["id"] == post_body["media"]["id"]
+    assert feed_post["comments"][0]["media"]["id"] == comment.json()["media"]["id"]
+    assert fake_forum_ai.media_calls == 2
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(MediaAttachment)) == 2
+
+
+def test_rejected_forum_media_does_not_publish_content(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+) -> None:
+    place_id = create_place("Moderated Media Forum", 5032)
+    author = create_user("0500005032", "Careful Author", [place_id])
+    fake_forum_ai.decision = ModerationDecision(
+        approved=False,
+        reason="Unsafe media",
+        categories=["violence"],
+    )
+
+    response = client.post(
+        "/api/forum/posts/with-media",
+        headers=auth_headers(author),
+        data={"place_id": str(place_id), "title": "Rejected", "body": "Rejected"},
+        files={"file": ("unsafe.jpg", jpeg_bytes(), "image/jpeg")},
+    )
+
+    assert response.status_code == 422
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(ForumPost)) == 0
+        assert db.scalar(select(func.count()).select_from(MediaAttachment)) == 0

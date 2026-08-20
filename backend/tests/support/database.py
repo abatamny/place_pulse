@@ -52,6 +52,7 @@ def clean_test_data(media_root: Path) -> None:
         ForumVote,
         JobQueueState,
         KnockMessage,
+        MediaAttachment,
         Place,
         PlaceMembership,
         Presence,
@@ -68,6 +69,7 @@ def clean_test_data(media_root: Path) -> None:
             ExploreParticipant,
             ExploreMemoryDig,
             ExploreMemory,
+            MediaAttachment,
             ForumComment,
             ForumVote,
             ForumPost,
@@ -84,3 +86,4 @@ def clean_test_data(media_root: Path) -> None:
             db.execute(delete(model))
         db.commit()
     shutil.rmtree(media_root / "digs", ignore_errors=True)
+    shutil.rmtree(media_root / "attachments", ignore_errors=True)

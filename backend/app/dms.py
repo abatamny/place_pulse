@@ -1,13 +1,17 @@
 from collections import defaultdict
 from datetime import datetime, timezone
+from typing import Annotated
 
 from fastapi import (
     APIRouter,
     Depends,
+    File,
+    Form,
     HTTPException,
     Query,
     Request,
     Response,
+    UploadFile,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -15,6 +19,7 @@ from fastapi import (
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
+from app.attachments import attachment_for_message, attachment_response
 from app.auth import (
     AuthContext,
     InvalidSessionError,
@@ -22,7 +27,13 @@ from app.auth import (
     resolve_session,
 )
 from app.database import SessionLocal
-from app.models import DirectMessage, User
+from app.media import (
+    read_limited_upload,
+    store_media,
+    validate_filename,
+    validate_media,
+)
+from app.models import DirectMessage, MediaAttachment, User
 from app.rate_limit import AuthRateLimiter
 from app.schemas import (
     DMConversationListResponse,
@@ -32,6 +43,7 @@ from app.schemas import (
     DMMessageResponse,
     DMUserResponse,
     DMUserSearchResponse,
+    clean_required_text,
 )
 
 DM_HISTORY_LIMIT = 200
@@ -68,6 +80,7 @@ def message_response(db: Session, message: DirectMessage) -> DMMessageResponse:
         text=message.text,
         created_at=message.created_at,
         read_at=message.read_at,
+        media=attachment_response(attachment_for_message(db, message.id)),
     )
 
 
@@ -248,6 +261,70 @@ async def send_message(
 
     notification = {"type": "message", "message": response.model_dump(mode="json")}
     await dm_connections.notify(payload.recipient_id, notification)
+    await dm_connections.notify(auth.user.id, notification)
+    return response
+
+
+@dm_router.post(
+    "/messages/with-media",
+    response_model=DMMessageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def send_message_with_media(
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    recipient_id: Annotated[int, Form(gt=0)],
+    text: Annotated[str, Form(min_length=1, max_length=1000)],
+    auth: AuthContext = Depends(require_auth),
+) -> DMMessageResponse:
+    dm_rate_limiter.check(request, f"dm-send-{auth.user.id}")
+    try:
+        text = clean_required_text(text, "Message cannot be empty")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with SessionLocal() as db:
+        require_other_user(db, auth.user.id, recipient_id)
+
+    media_type, content_type = validate_filename(file.filename, file.content_type)
+    try:
+        data = await read_limited_upload(file)
+    finally:
+        await file.close()
+    validate_media(data, media_type, content_type)
+    original_filename = file.filename or "upload"
+    storage_name, media_path = store_media(data, original_filename, "attachments")
+    try:
+        with SessionLocal.begin() as db:
+            require_other_user(db, auth.user.id, recipient_id)
+            message = DirectMessage(
+                sender_id=auth.user.id,
+                recipient_id=recipient_id,
+                text=text,
+                created_at=utc_now(),
+            )
+            db.add(message)
+            db.flush()
+            db.add(
+                MediaAttachment(
+                    user_id=auth.user.id,
+                    direct_message_id=message.id,
+                    media_type=media_type,
+                    content_type=content_type,
+                    storage_name=storage_name,
+                    original_filename=original_filename,
+                    file_size=len(data),
+                    moderation_status="not_required",
+                    created_at=utc_now(),
+                )
+            )
+            db.flush()
+            response = message_response(db, message)
+    except Exception:
+        media_path.unlink(missing_ok=True)
+        raise
+
+    notification = {"type": "message", "message": response.model_dump(mode="json")}
+    await dm_connections.notify(recipient_id, notification)
     await dm_connections.notify(auth.user.id, notification)
     return response
 

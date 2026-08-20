@@ -267,12 +267,22 @@ class ForumVoteRequest(StrictRequestModel):
     value: Literal[-1, 1]
 
 
+class MediaAttachmentResponse(BaseModel):
+    id: int
+    media_type: Literal["image", "video"]
+    content_type: str
+    original_filename: str
+    file_size: int
+    media_url: str
+
+
 class ForumCommentResponse(BaseModel):
     id: int
     user_id: int
     nickname: str
     text: str
     created_at: datetime
+    media: MediaAttachmentResponse | None = None
 
 
 class ForumPostResponse(BaseModel):
@@ -294,6 +304,7 @@ class ForumPostResponse(BaseModel):
     score: int
     my_vote: int
     created_at: datetime
+    media: MediaAttachmentResponse | None = None
     comments: list[ForumCommentResponse]
 
 
@@ -344,6 +355,7 @@ class DMMessageResponse(BaseModel):
     text: str
     created_at: datetime
     read_at: datetime | None
+    media: MediaAttachmentResponse | None = None
 
 
 class DMConversationResponse(BaseModel):

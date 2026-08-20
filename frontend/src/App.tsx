@@ -150,12 +150,22 @@ type ExploreLikeResponse = {
   like_count: number;
 };
 
+type MediaAttachment = {
+  id: number;
+  media_type: "image" | "video";
+  content_type: string;
+  original_filename: string;
+  file_size: number;
+  media_url: string;
+};
+
 type ForumComment = {
   id: number;
   user_id: number;
   nickname: string;
   text: string;
   created_at: string;
+  media: MediaAttachment | null;
 };
 
 type ForumPost = {
@@ -177,6 +187,7 @@ type ForumPost = {
   score: number;
   my_vote: number;
   created_at: string;
+  media: MediaAttachment | null;
   comments: ForumComment[];
 };
 
@@ -238,6 +249,7 @@ type DMMessage = {
   text: string;
   created_at: string;
   read_at: string | null;
+  media: MediaAttachment | null;
 };
 
 type DMConversation = {
@@ -427,6 +439,75 @@ async function apiRequest<T>(
     return undefined as T;
   }
   return response.json() as Promise<T>;
+}
+
+function AttachmentMedia({
+  attachment,
+  token,
+  compact = false,
+}: {
+  attachment: MediaAttachment;
+  token: string;
+  compact?: boolean;
+}) {
+  const [source, setSource] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl = "";
+    fetch(attachment.media_url, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Media is unavailable");
+        }
+        return response.blob();
+      })
+      .then((blob) => {
+        if (active) {
+          objectUrl = URL.createObjectURL(blob);
+          setSource(objectUrl);
+        }
+      })
+      .catch((caught) => {
+        if (active) {
+          setError(caught instanceof Error ? caught.message : "Media is unavailable");
+        }
+      });
+    return () => {
+      active = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [attachment.id, attachment.media_url, token]);
+
+  if (error) {
+    return <small className="attachment-state">{error}</small>;
+  }
+  if (!source) {
+    return <small className="attachment-state">Loading media...</small>;
+  }
+  if (attachment.media_type === "video") {
+    return (
+      <video
+        className={`attachment-media ${compact ? "attachment-media--compact" : ""}`}
+        controls
+        playsInline
+        preload="metadata"
+        src={source}
+      />
+    );
+  }
+  return (
+    <img
+      alt={attachment.original_filename}
+      className={`attachment-media ${compact ? "attachment-media--compact" : ""}`}
+      src={source}
+    />
+  );
 }
 
 function mergeMessages(messages: KnockMessage[]): KnockMessage[] {
@@ -1994,6 +2075,7 @@ function ForumPostCard({
   onChanged: () => void;
 }) {
   const [comment, setComment] = useState("");
+  const [commentFile, setCommentFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState("");
@@ -2021,6 +2103,7 @@ function ForumPostCard({
 
   async function submitComment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     const text = comment.trim();
     if (!text) {
       return;
@@ -2028,12 +2111,24 @@ function ForumPostCard({
     setBusy(true);
     setError("");
     try {
+      const body = commentFile
+        ? (() => {
+            const form = new FormData();
+            form.append("text", text);
+            form.append("file", commentFile);
+            return form;
+          })()
+        : JSON.stringify({ text });
       await apiRequest<ForumComment>(
-        `/api/forum/posts/${post.id}/comments`,
-        { method: "POST", body: JSON.stringify({ text }) },
+        commentFile
+          ? `/api/forum/posts/${post.id}/comments/with-media`
+          : `/api/forum/posts/${post.id}/comments`,
+        { method: "POST", body },
         token,
       );
       setComment("");
+      setCommentFile(null);
+      formElement.reset();
       onChanged();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not add comment");
@@ -2093,6 +2188,7 @@ function ForumPostCard({
           <div className="content-detail-scroll">
             <div className="forum-post-copy">
               <p>{post.body}</p>
+              {post.media && <AttachmentMedia attachment={post.media} token={token} />}
               <time dateTime={post.created_at}>
                 {new Date(post.created_at).toLocaleString()}
               </time>
@@ -2121,6 +2217,9 @@ function ForumPostCard({
                 <div className="forum-comment" key={item.id}>
                   <strong>{item.nickname}</strong>
                   <p>{item.text}</p>
+                  {item.media && (
+                    <AttachmentMedia attachment={item.media} compact token={token} />
+                  )}
                   <time dateTime={item.created_at}>
                     {new Date(item.created_at).toLocaleString()}
                   </time>
@@ -2137,9 +2236,15 @@ function ForumPostCard({
                 placeholder="Add a comment"
                 value={comment}
               />
-              <button className="button" disabled={busy || !comment.trim()} type="submit">
-                Reply
-              </button>
+              <label className="attachment-picker">
+                Media
+                <input
+                  accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
+                  onChange={(event) => setCommentFile(event.target.files?.[0] ?? null)}
+                  type="file"
+                />
+              </label>
+              <button className="button" disabled={busy || !comment.trim()} type="submit">Reply</button>
             </form>
           </div>
         </section>
@@ -2225,6 +2330,10 @@ function ForumPanel({
     const title = String(form.get("title") || "");
     const body = String(form.get("body") || "");
     const isAnonymous = form.get("anonymous") === "on";
+    const selectedMedia = form.get("file");
+    const mediaFile = selectedMedia instanceof File && selectedMedia.size > 0
+      ? selectedMedia
+      : null;
     if (!activeScope) {
       setError("Select a current place scope before posting.");
       return;
@@ -2249,6 +2358,7 @@ function ForumPanel({
       score: 0,
       my_vote: 0,
       created_at: new Date().toISOString(),
+      media: null,
       comments: [],
       pending: true,
     };
@@ -2258,16 +2368,30 @@ function ForumPanel({
     setError("");
     setNotice("");
     try {
+      let requestBody: BodyInit;
+      let requestPath = "/api/forum/posts";
+      if (mediaFile) {
+        const upload = new FormData();
+        upload.append("place_id", String(activeScope.id));
+        upload.append("title", title);
+        upload.append("body", body);
+        upload.append("is_anonymous", String(isAnonymous));
+        upload.append("file", mediaFile);
+        requestBody = upload;
+        requestPath = "/api/forum/posts/with-media";
+      } else {
+        requestBody = JSON.stringify({
+          place_id: activeScope.id,
+          title,
+          body,
+          is_anonymous: isAnonymous,
+        });
+      }
       const published = await apiRequest<ForumPost>(
-        "/api/forum/posts",
+        requestPath,
         {
           method: "POST",
-          body: JSON.stringify({
-            place_id: activeScope.id,
-            title,
-            body,
-            is_anonymous: isAnonymous,
-          }),
+          body: requestBody,
         },
         token,
       );
@@ -2357,6 +2481,15 @@ function ForumPanel({
             <label>
               Post
               <textarea maxLength={1800} name="body" required rows={4} />
+            </label>
+            <label className="attachment-picker">
+              Image or video (optional)
+              <input
+                accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
+                name="file"
+                type="file"
+              />
+              <small>Up to 10 MB. Videos can be up to 15 seconds.</small>
             </label>
             <div className="forum-composer-footer">
               <label className="checkbox-label">
@@ -2464,6 +2597,7 @@ function DMPanel({
   const [messages, setMessages] = useState<DMMessage[]>([]);
   const [searchResults, setSearchResults] = useState<DMUser[]>([]);
   const [draft, setDraft] = useState("");
+  const [draftMedia, setDraftMedia] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [chatMinimized, setChatMinimized] = useState(false);
@@ -2641,6 +2775,7 @@ function DMPanel({
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     const text = draft.trim();
     if (!selectedUser || !text) {
       return;
@@ -2648,11 +2783,23 @@ function DMPanel({
     setSending(true);
     setError("");
     try {
+      let requestPath = "/api/dms/messages";
+      let requestBody: BodyInit;
+      if (draftMedia) {
+        const form = new FormData();
+        form.append("recipient_id", String(selectedUser.id));
+        form.append("text", text);
+        form.append("file", draftMedia);
+        requestPath = "/api/dms/messages/with-media";
+        requestBody = form;
+      } else {
+        requestBody = JSON.stringify({ recipient_id: selectedUser.id, text });
+      }
       const message = await apiRequest<DMMessage>(
-        "/api/dms/messages",
+        requestPath,
         {
           method: "POST",
-          body: JSON.stringify({ recipient_id: selectedUser.id, text }),
+          body: requestBody,
         },
         token,
       );
@@ -2667,6 +2814,8 @@ function DMPanel({
         ),
       );
       setDraft("");
+      setDraftMedia(null);
+      formElement.reset();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not send message");
     } finally {
@@ -2800,6 +2949,9 @@ function DMPanel({
                       key={message.id}
                     >
                       <p>{message.text}</p>
+                      {message.media && (
+                        <AttachmentMedia attachment={message.media} compact token={token} />
+                      )}
                       <time dateTime={message.created_at}>
                         {new Date(message.created_at).toLocaleString()}
                       </time>
@@ -2816,6 +2968,14 @@ function DMPanel({
                   rows={2}
                   value={draft}
                 />
+                <label className="dm-attachment-picker">
+                  <span>{draftMedia ? draftMedia.name : "Media"}</span>
+                  <input
+                    accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
+                    onChange={(event) => setDraftMedia(event.target.files?.[0] ?? null)}
+                    type="file"
+                  />
+                </label>
                 <button className="button" disabled={sending || !draft.trim()} type="submit">
                   <Icon name="send" size={17} />
                   {sending ? "Sending..." : "Send"}

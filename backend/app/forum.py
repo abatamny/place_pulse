@@ -1,6 +1,16 @@
 from datetime import datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -8,6 +18,12 @@ from app.ai import (
     AIAdapter,
     get_ai_adapter,
     moderate_before_publication,
+    moderate_media_before_publication,
+)
+from app.attachments import (
+    attachment_for_comment,
+    attachment_for_post,
+    attachment_response,
 )
 from app.auth import AuthContext, require_auth
 from app.database import SessionLocal
@@ -15,9 +31,16 @@ from app.models import (
     ForumComment,
     ForumPost,
     ForumVote,
+    MediaAttachment,
     Place,
     Presence,
     User,
+)
+from app.media import (
+    read_limited_upload,
+    store_media,
+    validate_filename,
+    validate_media,
 )
 from app.place_labels import place_display_name
 from app.place_scope import (
@@ -36,6 +59,7 @@ from app.schemas import (
     ForumVoteRequest,
     ForumVoteResponse,
     PersonalForumResponse,
+    clean_required_text,
 )
 
 FORUM_POST_LIMIT = 100
@@ -106,6 +130,29 @@ async def require_safe_forum_text(adapter: AIAdapter, text: str) -> None:
         )
 
 
+async def read_and_moderate_forum_media(
+    adapter: AIAdapter, upload: UploadFile
+) -> tuple[bytes, str, str, str]:
+    media_type, content_type = validate_filename(upload.filename, upload.content_type)
+    try:
+        data = await read_limited_upload(upload)
+    finally:
+        await upload.close()
+    samples = validate_media(data, media_type, content_type)
+    decision = await moderate_media_before_publication(adapter, samples)
+    if "ai_failure" in decision.categories:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Forum media moderation is temporarily unavailable",
+        )
+    if not decision.approved:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This forum media cannot be published",
+        )
+    return data, media_type, content_type, upload.filename or "upload"
+
+
 def vote_counts(db: Session, post_id: int, user_id: int) -> ForumVoteResponse:
     values = list(
         db.scalars(select(ForumVote.value).where(ForumVote.post_id == post_id))
@@ -165,6 +212,7 @@ def post_response(
         score=votes.score,
         my_vote=votes.my_vote,
         created_at=post.created_at,
+        media=attachment_response(attachment_for_post(db, post.id)),
         comments=[
             ForumCommentResponse(
                 id=comment.id,
@@ -172,6 +220,7 @@ def post_response(
                 nickname=nickname,
                 text=comment.text,
                 created_at=comment.created_at,
+                media=attachment_response(attachment_for_comment(db, comment.id)),
             )
             for comment, nickname in comment_rows
         ],
@@ -250,6 +299,75 @@ async def create_post(
 
 
 @forum_router.post(
+    "/posts/with-media",
+    response_model=ForumPostResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_post_with_media(
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    title: Annotated[str, Form(min_length=1, max_length=120)],
+    body: Annotated[str, Form(min_length=1, max_length=1800)],
+    place_id: Annotated[int | None, Form(gt=0)] = None,
+    is_anonymous: Annotated[bool, Form()] = False,
+    auth: AuthContext = Depends(require_auth),
+    adapter: AIAdapter = Depends(get_ai_adapter),
+) -> ForumPostResponse:
+    forum_rate_limiter.check(request, f"forum-post-{auth.user.id}")
+    try:
+        title = clean_required_text(title, "Post title cannot be empty")
+        body = clean_required_text(body, "Post text cannot be empty")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with SessionLocal() as db:
+        selected_place_id = place_id
+        if selected_place_id is None:
+            selected_place_id = current_content_places(db, auth.user.id).origin.id
+        resolve_content_place_scope(db, auth.user.id, selected_place_id)
+
+    await require_safe_forum_text(adapter, f"Title: {title}\n\nPost: {body}")
+    data, media_type, content_type, original_filename = (
+        await read_and_moderate_forum_media(adapter, file)
+    )
+    storage_name, media_path = store_media(data, original_filename, "attachments")
+    try:
+        with SessionLocal.begin() as db:
+            content_scope = resolve_content_place_scope(
+                db, auth.user.id, selected_place_id
+            )
+            post = ForumPost(
+                place_id=content_scope.scope.id,
+                origin_place_id=content_scope.origin.id,
+                user_id=auth.user.id,
+                title=title,
+                body=body,
+                is_anonymous=is_anonymous,
+                moderation_status="approved",
+                created_at=utc_now(),
+            )
+            db.add(post)
+            db.flush()
+            db.add(
+                MediaAttachment(
+                    user_id=auth.user.id,
+                    forum_post_id=post.id,
+                    media_type=media_type,
+                    content_type=content_type,
+                    storage_name=storage_name,
+                    original_filename=original_filename,
+                    file_size=len(data),
+                    moderation_status="approved",
+                    created_at=utc_now(),
+                )
+            )
+            db.flush()
+            return post_response(db, post, auth.user.id)
+    except Exception:
+        media_path.unlink(missing_ok=True)
+        raise
+
+
+@forum_router.post(
     "/posts/{post_id}/comments",
     response_model=ForumCommentResponse,
     status_code=status.HTTP_201_CREATED,
@@ -285,6 +403,69 @@ async def create_comment(
             text=comment.text,
             created_at=comment.created_at,
         )
+
+
+@forum_router.post(
+    "/posts/{post_id}/comments/with-media",
+    response_model=ForumCommentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_comment_with_media(
+    post_id: int,
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    text: Annotated[str, Form(min_length=1, max_length=1000)],
+    auth: AuthContext = Depends(require_auth),
+    adapter: AIAdapter = Depends(get_ai_adapter),
+) -> ForumCommentResponse:
+    forum_rate_limiter.check(request, f"forum-comment-{auth.user.id}")
+    try:
+        text = clean_required_text(text, "Comment cannot be empty")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with SessionLocal() as db:
+        require_post_access(db, auth.user.id, post_id)
+    await require_safe_forum_text(adapter, text)
+    data, media_type, content_type, original_filename = (
+        await read_and_moderate_forum_media(adapter, file)
+    )
+    storage_name, media_path = store_media(data, original_filename, "attachments")
+    try:
+        with SessionLocal.begin() as db:
+            require_post_access(db, auth.user.id, post_id)
+            comment = ForumComment(
+                post_id=post_id,
+                user_id=auth.user.id,
+                text=text,
+                moderation_status="approved",
+                created_at=utc_now(),
+            )
+            db.add(comment)
+            db.flush()
+            attachment = MediaAttachment(
+                user_id=auth.user.id,
+                forum_comment_id=comment.id,
+                media_type=media_type,
+                content_type=content_type,
+                storage_name=storage_name,
+                original_filename=original_filename,
+                file_size=len(data),
+                moderation_status="approved",
+                created_at=utc_now(),
+            )
+            db.add(attachment)
+            db.flush()
+            return ForumCommentResponse(
+                id=comment.id,
+                user_id=comment.user_id,
+                nickname=auth.user.nickname,
+                text=comment.text,
+                created_at=comment.created_at,
+                media=attachment_response(attachment),
+            )
+    except Exception:
+        media_path.unlink(missing_ok=True)
+        raise
 
 
 @forum_router.put(

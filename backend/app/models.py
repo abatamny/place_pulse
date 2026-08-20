@@ -325,6 +325,44 @@ class DirectMessage(Base):
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class MediaAttachment(Base):
+    __tablename__ = "media_attachments"
+    __table_args__ = (
+        CheckConstraint(
+            "(CASE WHEN forum_post_id IS NULL THEN 0 ELSE 1 END + "
+            "CASE WHEN forum_comment_id IS NULL THEN 0 ELSE 1 END + "
+            "CASE WHEN direct_message_id IS NULL THEN 0 ELSE 1 END) = 1",
+            name="ck_media_attachment_single_parent",
+        ),
+        UniqueConstraint("forum_post_id", name="uq_media_attachment_forum_post"),
+        UniqueConstraint("forum_comment_id", name="uq_media_attachment_forum_comment"),
+        UniqueConstraint("direct_message_id", name="uq_media_attachment_direct_message"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    forum_post_id: Mapped[int | None] = mapped_column(
+        ForeignKey("forum_posts.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    forum_comment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("forum_comments.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    direct_message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("direct_messages.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    media_type: Mapped[str] = mapped_column(String(10))
+    content_type: Mapped[str] = mapped_column(String(40))
+    storage_name: Mapped[str] = mapped_column(String(80), unique=True)
+    original_filename: Mapped[str] = mapped_column(String(120))
+    file_size: Mapped[int] = mapped_column(Integer)
+    moderation_status: Mapped[str] = mapped_column(String(20), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AIJob(Base):
     __tablename__ = "ai_jobs"
 

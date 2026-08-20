@@ -1100,6 +1100,7 @@ dd {
 
 .forum-comment-form {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.8rem 0.9rem;
   border-top: 1px solid #e2ebe6;
@@ -1107,6 +1108,14 @@ dd {
 
 .forum-comment-form .button {
   flex: 0 0 auto;
+}
+
+.forum-comment-form > input:first-child {
+  flex: 1 1 14rem;
+}
+
+.forum-comment-form .attachment-picker {
+  flex: 1 1 12rem;
 }
 
 .dm-layout {
@@ -2670,6 +2679,69 @@ button:focus-visible {
 
 .chat-error {
   flex: 0 0 auto;
+}
+
+.attachment-picker {
+  display: grid;
+  gap: 0.35rem;
+  color: #36564d;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.attachment-picker input[type="file"] {
+  width: 100%;
+  font: inherit;
+  font-weight: 500;
+}
+
+.attachment-picker small,
+.attachment-state {
+  color: #61766f;
+  font-weight: 500;
+}
+
+.attachment-media {
+  display: block;
+  width: min(100%, 36rem);
+  max-height: 30rem;
+  margin-top: 0.65rem;
+  border-radius: 0.7rem;
+  object-fit: contain;
+  background: #edf3f0;
+}
+
+.attachment-media--compact {
+  width: min(100%, 20rem);
+  max-height: 16rem;
+}
+
+.dm-attachment-picker {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 0.55rem 0.45rem;
+  color: #315b50;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.dm-attachment-picker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.dm-attachment-picker:has(input:focus-visible) {
+  outline: 2px solid #2f7866;
+  outline-offset: 2px;
+}
+
+.dm-message .attachment-media {
+  margin-top: 0.45rem;
 }
 
 @media (max-width: 1080px) {

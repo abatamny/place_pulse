@@ -1,15 +1,17 @@
+import io
 import secrets
 from dataclasses import dataclass
 from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlalchemy import func, select
 from starlette.websockets import WebSocketDisconnect
 
 from app.auth import hash_session_token, utc_now
 from app.database import SessionLocal
-from app.models import AuthSession, DirectMessage, User
+from app.models import AuthSession, DirectMessage, MediaAttachment, User
 
 
 pytestmark = pytest.mark.integration
@@ -45,6 +47,12 @@ def create_user(phone: str, nickname: str) -> SessionIdentity:
 
 def auth_headers(identity: SessionIdentity) -> dict[str, str]:
     return {"Authorization": f"Bearer {identity.token}"}
+
+
+def jpeg_bytes() -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (80, 60), (70, 150, 110)).save(output, format="JPEG")
+    return output.getvalue()
 
 
 def send_message(
@@ -165,3 +173,37 @@ def test_dm_authentication_recipient_and_input_are_validated(
         with client.websocket_connect("/ws/dms?token=invalid"):
             pass
     assert disconnect.value.code == 4401
+
+
+@pytest.mark.security
+def test_dm_media_is_unmoderated_but_private_and_validated(client: TestClient) -> None:
+    sender = create_user("0500006010", "Media Sender")
+    recipient = create_user("0500006011", "Media Recipient")
+    outsider = create_user("0500006012", "Media Outsider")
+
+    sent = client.post(
+        "/api/dms/messages/with-media",
+        headers=auth_headers(sender),
+        data={"recipient_id": str(recipient.user_id), "text": "Private photo"},
+        files={"file": ("private.jpg", jpeg_bytes(), "image/jpeg")},
+    )
+
+    assert sent.status_code == 201
+    body = sent.json()
+    assert body["media"]["original_filename"] == "private.jpg"
+    media_url = body["media"]["media_url"]
+    assert client.get(media_url, headers=auth_headers(sender)).status_code == 200
+    assert client.get(media_url, headers=auth_headers(recipient)).status_code == 200
+    assert client.get(media_url, headers=auth_headers(outsider)).status_code == 404
+    with SessionLocal() as db:
+        attachment = db.scalar(select(MediaAttachment))
+        assert attachment is not None
+        assert attachment.moderation_status == "not_required"
+
+    invalid = client.post(
+        "/api/dms/messages/with-media",
+        headers=auth_headers(sender),
+        data={"recipient_id": str(recipient.user_id), "text": "Not really media"},
+        files={"file": ("fake.jpg", b"not an image", "image/jpeg")},
+    )
+    assert invalid.status_code == 400
