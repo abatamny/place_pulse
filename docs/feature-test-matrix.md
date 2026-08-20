@@ -12,8 +12,8 @@ This list connects each implemented feature to its main automated evidence. Exte
 | Coordinate validation, per-heartbeat OSM resolution, locality extraction, stable place upserts, later nested-place discovery, canonical labels, local Overpass containment readiness | `tests/unit/test_osm.py`, `tests/integration/test_places.py`, place-scoped integration tests, `scripts/smoke-test-overpass.ps1` | Unit/integration/manual smoke |
 | Presence expiry, saved visits, VISITOR-to-BELONG promotion | `tests/integration/test_places.py` | Integration |
 | Structured local-AI adapter, model-output parsing, safety-category mapping, compatible external API format, timeouts, fail-closed behavior | `backend/tests/unit/test_ai.py`, `local_ai/tests/test_inference.py`, `backend/tests/integration/test_ai_worker.py` | Unit/integration |
-| Prompt-injection and invalid AI-output rejection | security-marked tests in `tests/unit/test_ai.py` and feature integration files | Security |
-| Nested-place routing and hierarchy validation | `tests/unit/test_ai.py`, `tests/integration/test_knock.py` | Unit/integration |
+| Jailbreak robustness: normalized direct/obfuscated prompt-injection detection, untrusted-instruction rejection, output screening, and fail-closed behavior | security-marked tests in `tests/unit/test_ai.py` and feature integration files | Security |
+| Hallucination robustness: strict schemas/category allow lists, invented or contradictory place rejection, hierarchy validation, and confidence-gated media routing | `tests/unit/test_ai.py`, `tests/integration/test_ai_worker.py`, `tests/integration/test_knock.py` | Unit/integration/security |
 | Fair PostgreSQL AI job scheduling and worker failure handling | `tests/integration/test_jobs.py`, `tests/integration/test_ai_worker.py` | Integration |
 | KNOCK live delivery, room isolation, moderation, persistence, reconnect history | `tests/integration/test_knock.py` | Integration/WebSocket |
 | DIG media validation, upload limit, moderation, access control, expiry | `tests/integration/test_digs.py` | Integration/security |

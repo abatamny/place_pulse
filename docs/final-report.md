@@ -20,6 +20,7 @@ PlacePulse is a mobile-friendly location-based community application. A verified
 - Persistent place forums with moderated posts/comments, public anonymity, voting, and a personal post/score view.
 - Private one-to-one messages with user search, saved history, unread state, and WebSocket notifications.
 - Local text moderation with `Qwen3Guard-Gen-0.6B`, constrained routing with `Qwen3-0.6B`, image moderation with `image-safety-classifier-s`, and a fair durable PostgreSQL worker queue. External adapters remain optional fallbacks.
+- Course-sized jailbreak robustness through normalized prompt-injection screening, instruction/data separation, output screening, and fail-closed decisions; hallucination robustness through strict schemas, allow lists, server-supplied place facts, hierarchy checks, and rejection of invented or contradictory routes.
 - Optional single-VM Azure deployment helper using the same Compose architecture.
 
 ## Architecture and important decisions
@@ -27,6 +28,8 @@ PlacePulse is a mobile-friendly location-based community application. A verified
 Only Nginx is published to the host. The backend, worker, local-AI service, local Overpass service, and PostGIS database remain on the internal Compose network. PostgreSQL stores application data and AI jobs; named volumes store approved media, downloaded model weights, and the regional Overpass index. This keeps the system understandable and deployable for a course project without adding a broker, cache, API gateway, or orchestration platform.
 
 OpenStreetMap and local inference are behind small adapters. Tests replace both with deterministic fakes or mocked transport, so CI does not require model downloads, API credentials, or paid requests. Pre-publication AI decisions fail closed. BELONG KNOCK messages publish immediately and are checked by the background worker afterward.
+
+AI output is never trusted to create application facts or bypass authorization. Security tests exercise direct and obfuscated jailbreak attempts, instruction-like output, unknown moderation categories, invented place IDs, routes that contradict named stored places, low-confidence media routes, malformed results, and timeouts. This is tested error containment rather than a claim that every model-level jailbreak or hallucination is detectable; ongoing adversarial evaluation would be required beyond the course deployment.
 
 ## Testing and results
 

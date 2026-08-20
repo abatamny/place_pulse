@@ -240,7 +240,13 @@ Post-publication moderation is placed in the PostgreSQL `ai_jobs` table. The int
 
 The local service exposes only `/health`, `/v1/moderate/text`, `/v1/moderate/images`, and `/v1/route/text` on the Compose network. It loads each model once, serializes inference by default, validates generated decisions, and keeps its model cache in a named volume. The selected image model is not a vision-language router, so media scope routing safely falls back to the application-selected deepest scope.
 
-Model inputs are normalized before broader jailbreak-pattern checks and moderation categories are restricted. Selected scope IDs are validated against fresh presence before publication. Automated tests inject deterministic fakes or mocked HTTP transport, so test runs never call external services or load the real models.
+### Jailbreak and hallucination robustness
+
+PlacePulse includes course-sized **jailbreak robustness**. Untrusted text is Unicode-normalized, invisible characters are removed, and known prompt-injection/jailbreak patterns are rejected before inference. Prompts tell the model not to follow instructions embedded in user text or media, generated reason text is screened again, and invalid, timed-out, or nonconforming decisions fail closed.
+
+It also includes **hallucination robustness** by treating AI output as an untrusted suggestion rather than a source of application facts. Decisions must match strict schemas and allow-listed moderation categories. Routing can select only backend-supplied OpenStreetMap place IDs with a valid stored hierarchy; an invented ID, a result that contradicts an explicitly named place, or low-confidence media routing is rejected. The final selected scope is independently checked against fresh user presence before publication.
+
+Security-marked tests cover direct and zero-width-obfuscated jailbreak text, invented moderation categories and place IDs, contradictory place routing, instruction-like model output, low-confidence routing, malformed output, and timeouts. These controls reduce and contain model errors; they do not prove resistance to every future jailbreak or hallucination, so the remaining limitation is tracked in the [risk assessment](docs/risk-assessment.md).
 
 ## Automated tests
 
