@@ -771,3 +771,110 @@ def test_cannot_vote_on_a_comment_without_place_presence(
     assert denied.status_code == 403
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(ForumCommentVote)) == 0
+
+
+def test_post_author_can_see_who_liked_and_disliked_their_post(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+) -> None:
+    place_id = create_place("Voter Visibility Forum", 5044)
+    author = create_user("0500005056", "Voter Visibility Author", [place_id])
+    liker = create_user("0500005057", "Liker", [place_id])
+    disliker = create_user("0500005058", "Disliker", [place_id])
+    post_id = create_approved_post(client, fake_forum_ai, author).json()["id"]
+
+    client.put(
+        f"/api/forum/posts/{post_id}/vote",
+        headers=auth_headers(liker),
+        json={"value": 1},
+    )
+    client.put(
+        f"/api/forum/posts/{post_id}/vote",
+        headers=auth_headers(disliker),
+        json={"value": -1},
+    )
+
+    voters = client.get(
+        f"/api/forum/posts/{post_id}/voters",
+        headers=auth_headers(author),
+    )
+    assert voters.status_code == 200
+    body = voters.json()
+    assert [entry["nickname"] for entry in body["likers"]] == ["Liker"]
+    assert [entry["nickname"] for entry in body["dislikers"]] == ["Disliker"]
+    assert body["likers"][0]["user_id"] == liker.user_id
+
+
+@pytest.mark.security
+def test_only_post_author_can_see_post_voters(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+) -> None:
+    place_id = create_place("Voter Privacy Forum", 5045)
+    author = create_user("0500005059", "Voter Privacy Author", [place_id])
+    someone_else = create_user("0500005060", "Not The Author", [place_id])
+    post_id = create_approved_post(client, fake_forum_ai, author).json()["id"]
+
+    denied = client.get(
+        f"/api/forum/posts/{post_id}/voters",
+        headers=auth_headers(someone_else),
+    )
+    assert denied.status_code == 404
+
+
+def test_comment_author_can_see_who_liked_and_disliked_their_comment(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+) -> None:
+    place_id = create_place("Comment Voter Visibility Forum", 5046)
+    author = create_user("0500005061", "Comment Vis Author", [place_id])
+    liker = create_user("0500005062", "Comment Liker", [place_id])
+    post_id = create_approved_post(client, fake_forum_ai, author).json()["id"]
+
+    comment = client.post(
+        f"/api/forum/posts/{post_id}/comments",
+        headers=auth_headers(author),
+        json={"text": "Reply worth voting on"},
+    )
+    assert process_forum_job(fake_forum_ai) is True
+    comment_id = comment.json()["id"]
+
+    client.put(
+        f"/api/forum/comments/{comment_id}/vote",
+        headers=auth_headers(liker),
+        json={"value": 1},
+    )
+
+    voters = client.get(
+        f"/api/forum/comments/{comment_id}/voters",
+        headers=auth_headers(author),
+    )
+    assert voters.status_code == 200
+    body = voters.json()
+    assert [entry["nickname"] for entry in body["likers"]] == ["Comment Liker"]
+    assert body["dislikers"] == []
+
+
+@pytest.mark.security
+def test_only_comment_author_can_see_comment_voters(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+) -> None:
+    place_id = create_place("Comment Voter Privacy Forum", 5047)
+    author = create_user("0500005063", "Comment Voter Privacy Author", [place_id])
+    someone_else = create_user("0500005064", "Not The Comment Author", [place_id])
+    post_id = create_approved_post(client, fake_forum_ai, author).json()["id"]
+
+    comment = client.post(
+        f"/api/forum/posts/{post_id}/comments",
+        headers=auth_headers(author),
+        json={"text": "Reply worth voting on"},
+    )
+    assert process_forum_job(fake_forum_ai) is True
+    comment_id = comment.json()["id"]
+
+    denied = client.get(
+        f"/api/forum/comments/{comment_id}/voters",
+        headers=auth_headers(someone_else),
+    )
+    assert denied.status_code == 404

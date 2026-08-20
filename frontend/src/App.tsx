@@ -211,6 +211,17 @@ type ForumVoteResponse = {
   my_vote: number;
 };
 
+type ForumVoterEntry = {
+  user_id: number;
+  nickname: string;
+  voted_at: string;
+};
+
+type ForumVotersResponse = {
+  likers: ForumVoterEntry[];
+  dislikers: ForumVoterEntry[];
+};
+
 type ForumStatusItem = {
   id: number;
   moderation_status: "pending" | "approved" | "denied";
@@ -2148,15 +2159,135 @@ function ExplorePanel({
   );
 }
 
+function VotersPanel({
+  kind,
+  id,
+  token,
+}: {
+  kind: "posts" | "comments";
+  id: number;
+  token: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [voters, setVoters] = useState<ForumVotersResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [tab, setTab] = useState<"likes" | "dislikes">("likes");
+  const containerRef = useDismissOnOutsideInteraction<HTMLDivElement>(
+    open,
+    () => setOpen(false),
+  );
+
+  useEffect(() => {
+    if (!open || voters) {
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    setError("");
+    apiRequest<ForumVotersResponse>(`/api/forum/${kind}/${id}/voters`, {}, token)
+      .then((response) => {
+        if (active) {
+          setVoters(response);
+        }
+      })
+      .catch((caught) => {
+        if (active) {
+          setError(caught instanceof Error ? caught.message : "Could not load voters");
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, voters, kind, id, token]);
+
+  const activeList = tab === "likes" ? voters?.likers : voters?.dislikers;
+
+  return (
+    <div className="forum-voters" ref={containerRef}>
+      <button
+        className="forum-voters-toggle"
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        Who voted?
+      </button>
+      {open && (
+        <div className="forum-voters-popup" role="dialog" aria-label="Voters">
+          <header className="popover-header">
+            <div>
+              <span>Voters</span>
+            </div>
+            <button
+              aria-label="Close voters"
+              className="icon-button"
+              onClick={() => setOpen(false)}
+              type="button"
+            >
+              <Icon name="x" />
+            </button>
+          </header>
+          {loading && <p className="forum-voters-status">Loading...</p>}
+          {error && <p className="knock-error">{error}</p>}
+          {voters && (
+            <>
+              <div className="forum-voters-tabs" role="tablist">
+                <button
+                  aria-selected={tab === "likes"}
+                  className={tab === "likes" ? "active" : ""}
+                  onClick={() => setTab("likes")}
+                  role="tab"
+                  type="button"
+                >
+                  Likes ({voters.likers.length})
+                </button>
+                <button
+                  aria-selected={tab === "dislikes"}
+                  className={tab === "dislikes" ? "active" : ""}
+                  onClick={() => setTab("dislikes")}
+                  role="tab"
+                  type="button"
+                >
+                  Dislikes ({voters.dislikers.length})
+                </button>
+              </div>
+              <div className="forum-voters-list" role="tabpanel">
+                {activeList && activeList.length === 0 ? (
+                  <span className="forum-voters-empty">
+                    {tab === "likes" ? "No likes yet." : "No dislikes yet."}
+                  </span>
+                ) : (
+                  <ul>
+                    {activeList?.map((entry) => (
+                      <li key={entry.user_id}>{entry.nickname}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ForumPostCard({
   post,
   token,
+  currentUserId,
   onVoted,
   onCommentCreated,
   onCommentVoted,
 }: {
   post: ForumPost;
   token: string;
+  currentUserId: number;
   onVoted: (vote: ForumVoteResponse) => void;
   onCommentCreated: (comment: ForumComment) => void;
   onCommentVoted: (commentId: number, vote: ForumVoteResponse) => void;
@@ -2373,6 +2504,7 @@ function ForumPostCard({
                 ▼ {post.downvotes}
               </button>
             </div>
+            {post.is_mine && <VotersPanel id={post.id} kind="posts" token={token} />}
             <div className="forum-comments">
               {visibleComments.map((item) => (
                 <div className="forum-comment" key={item.id}>
@@ -2398,6 +2530,9 @@ function ForumPostCard({
                       ▼ {item.downvotes}
                     </button>
                   </div>
+                  {item.user_id === currentUserId && (
+                    <VotersPanel id={item.id} kind="comments" token={token} />
+                  )}
                   <time dateTime={item.created_at}>
                     {new Date(item.created_at).toLocaleString()}
                   </time>
@@ -2897,6 +3032,7 @@ function ForumPanel({
             {visibleApprovedPosts.map((post) => (
               <ForumPostCard
                 key={post.id}
+                currentUserId={user.id}
                 onCommentCreated={(comment) => addComment(post.id, comment)}
                 onCommentVoted={(commentId, vote) =>
                   patchComment(post.id, commentId, {

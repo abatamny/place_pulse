@@ -343,6 +343,17 @@ class ForumVoteResponse(BaseModel):
     my_vote: int
 
 
+class ForumVoterEntry(BaseModel):
+    user_id: int
+    nickname: str
+    voted_at: datetime
+
+
+class ForumVotersResponse(BaseModel):
+    likers: list[ForumVoterEntry]
+    dislikers: list[ForumVoterEntry]
+
+
 class PersonalForumResponse(BaseModel):
     posts: list[ForumPostResponse]
     total_upvotes: int

@@ -66,8 +66,10 @@ from app.schemas import (
     ForumPostResponse,
     ForumStatusItem,
     ForumStatusResponse,
+    ForumVoterEntry,
     ForumVoteRequest,
     ForumVoteResponse,
+    ForumVotersResponse,
     PersonalForumResponse,
     clean_required_text,
 )
@@ -822,6 +824,75 @@ def remove_comment_vote(
             db.delete(vote)
             db.flush()
         return comment_vote_counts(db, comment_id, auth.user.id)
+
+
+@forum_router.get("/posts/{post_id}/voters", response_model=ForumVotersResponse)
+def post_voters(
+    post_id: int,
+    auth: AuthContext = Depends(require_auth),
+) -> ForumVotersResponse:
+    with SessionLocal() as db:
+        post = db.get(ForumPost, post_id)
+        if post is None or post.user_id != auth.user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Forum post not found",
+            )
+        rows = db.execute(
+            select(ForumVote.user_id, ForumVote.value, ForumVote.created_at, User.nickname)
+            .join(User, User.id == ForumVote.user_id)
+            .where(ForumVote.post_id == post_id)
+            .order_by(ForumVote.created_at.desc())
+        ).all()
+        return ForumVotersResponse(
+            likers=[
+                ForumVoterEntry(user_id=row.user_id, nickname=row.nickname, voted_at=row.created_at)
+                for row in rows
+                if row.value == 1
+            ],
+            dislikers=[
+                ForumVoterEntry(user_id=row.user_id, nickname=row.nickname, voted_at=row.created_at)
+                for row in rows
+                if row.value == -1
+            ],
+        )
+
+
+@forum_router.get("/comments/{comment_id}/voters", response_model=ForumVotersResponse)
+def comment_voters(
+    comment_id: int,
+    auth: AuthContext = Depends(require_auth),
+) -> ForumVotersResponse:
+    with SessionLocal() as db:
+        comment = db.get(ForumComment, comment_id)
+        if comment is None or comment.user_id != auth.user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Forum comment not found",
+            )
+        rows = db.execute(
+            select(
+                ForumCommentVote.user_id,
+                ForumCommentVote.value,
+                ForumCommentVote.created_at,
+                User.nickname,
+            )
+            .join(User, User.id == ForumCommentVote.user_id)
+            .where(ForumCommentVote.comment_id == comment_id)
+            .order_by(ForumCommentVote.created_at.desc())
+        ).all()
+        return ForumVotersResponse(
+            likers=[
+                ForumVoterEntry(user_id=row.user_id, nickname=row.nickname, voted_at=row.created_at)
+                for row in rows
+                if row.value == 1
+            ],
+            dislikers=[
+                ForumVoterEntry(user_id=row.user_id, nickname=row.nickname, voted_at=row.created_at)
+                for row in rows
+                if row.value == -1
+            ],
+        )
 
 
 @forum_router.get("/me", response_model=PersonalForumResponse)

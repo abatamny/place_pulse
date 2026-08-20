@@ -1005,6 +1005,7 @@ dd {
 
 .forum-feed {
   display: grid;
+  align-content: start;
   min-height: 20rem;
   gap: 1rem;
   padding: 1rem;
@@ -1102,6 +1103,105 @@ dd {
 .forum-votes strong {
   min-width: 2rem;
   text-align: center;
+}
+
+.forum-voters {
+  padding: 0 0.9rem 0.8rem;
+}
+
+.forum-voters-toggle {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid #d0dfd5;
+  border-radius: 0.5rem;
+  background: #f7faf8;
+  color: #536c65;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.forum-voters-popup {
+  position: fixed;
+  z-index: 60;
+  top: 50%;
+  left: 50%;
+  width: min(20rem, calc(100% - 2rem));
+  overflow: hidden;
+  border: 1px solid #d5ddd8;
+  border-radius: 0.9rem;
+  background: #fff;
+  box-shadow: 0 1.4rem 3.5rem rgb(23 45 39 / 28%);
+  font-size: 0.78rem;
+  transform: translate(-50%, -50%);
+}
+
+.forum-voters-popup .popover-header {
+  padding: 0.7rem 0.85rem;
+}
+
+.forum-voters-popup .popover-header div {
+  display: block;
+}
+
+.forum-voters-popup .popover-header span {
+  color: #172d27;
+  font-weight: 800;
+}
+
+.forum-voters-status {
+  margin: 0;
+  padding: 0.8rem 0.85rem;
+  color: #61766f;
+}
+
+.forum-voters-tabs {
+  display: flex;
+  border-bottom: 1px solid #e2ebe6;
+}
+
+.forum-voters-tabs button {
+  flex: 1 1 0;
+  padding: 0.5rem 0.4rem;
+  border: 0;
+  background: transparent;
+  color: #61766f;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.forum-voters-tabs button.active {
+  background: #fff;
+  color: #17623f;
+  box-shadow: inset 0 -2px 0 #17623f;
+}
+
+.forum-voters-list {
+  max-height: 9rem;
+  padding: 0.55rem 0.7rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.forum-voters-list ul {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: #314b44;
+}
+
+.forum-voters-list li {
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid #eef3f0;
+}
+
+.forum-voters-list li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.forum-voters-empty {
+  color: #61766f;
 }
 
 .forum-comments {
@@ -3701,7 +3801,8 @@ button:focus-visible {
 .map-overlay,
 .dig-expanded-card,
 .content-detail-window,
-.forum-create-window {
+.forum-create-window,
+.forum-voters-popup {
   animation: surface-fade 160ms ease-out both;
 }
 
@@ -3867,6 +3968,7 @@ button:focus-visible {
   .dig-expanded-card,
   .content-detail-window,
   .forum-create-window,
+  .forum-voters-popup,
   .dig-upload-popover,
   .message-drawer,
   .chat-window,
