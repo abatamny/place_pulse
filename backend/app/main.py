@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, status
@@ -12,7 +13,7 @@ from app.digs import digs_router
 from app.dms import dm_router, dm_websocket_router
 from app.explore import explore_router
 from app.forum import forum_router
-from app.knock import knock_router, knock_websocket_router
+from app.knock import knock_router, knock_websocket_router, run_knock_broadcaster
 from app.places import places_router
 from app.protection import ConcurrencyLimitMiddleware, RequestBodyLimitMiddleware
 
@@ -21,7 +22,15 @@ from app.protection import ConcurrencyLimitMiddleware, RequestBodyLimitMiddlewar
 async def lifespan(_: FastAPI):
     settings.media_root.mkdir(parents=True, exist_ok=True)
     create_schema()
-    yield
+    broadcaster_task = asyncio.create_task(run_knock_broadcaster())
+    try:
+        yield
+    finally:
+        broadcaster_task.cancel()
+        try:
+            await broadcaster_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="PlacePulse API", version="0.1.0", lifespan=lifespan)

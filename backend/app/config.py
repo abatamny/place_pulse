@@ -22,6 +22,7 @@ class Settings:
     overpass_timeout_seconds: int = max(
         1, int(os.getenv("OVERPASS_TIMEOUT_SECONDS", "20"))
     )
+    place_name_language: str = os.getenv("PLACE_NAME_LANGUAGE", "en").strip().lower()
     ai_provider: str = os.getenv("AI_PROVIDER", "local")
     ai_local_url: str = os.getenv("AI_LOCAL_URL", "http://local-ai:8081").rstrip("/")
     ai_api_url: str = os.getenv(

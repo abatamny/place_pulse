@@ -33,6 +33,19 @@ class ResolvedPlace:
         return (self.osm_type, self.osm_id)
 
 
+def localized_name(tags: dict[str, Any], key: str = "name") -> str | None:
+    """Prefer the configured language's OSM name tag (e.g. name:en) over the
+    default-language `name` tag, falling back to `name` when no translation
+    is available in the data."""
+    language = settings.place_name_language
+    if language:
+        localized = tags.get(f"{key}:{language}")
+        if isinstance(localized, str) and localized.strip():
+            return localized.strip()
+    value = tags.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 class OSMPlaceResolver:
     def resolve(self, latitude: float, longitude: float) -> list[ResolvedPlace]:
         # Overpass is authoritative for the complete enclosing-place set. A
@@ -111,7 +124,7 @@ class OSMPlaceResolver:
                     ResolvedPlace(
                         osm_type=osm_type,
                         osm_id=osm_id,
-                        name=str(tags["name"])[:200],
+                        name=(localized_name(tags) or str(tags["name"]))[:200],
                         center_lat=center_lat,
                         center_lon=center_lon,
                         scope_class=scope_class,
@@ -164,20 +177,19 @@ class OSMPlaceResolver:
         for element in elements:
             tags = element.get("tags", {})
             if tags.get("place") in {"city", "town", "village", "municipality"}:
-                name = tags.get("name")
-                if isinstance(name, str) and name.strip():
-                    return name.strip()[:200]
+                name = localized_name(tags)
+                if name:
+                    return name[:200]
 
         for element in elements:
             tags = element.get("tags", {})
-            name = tags.get("name")
             if (
                 tags.get("boundary") == "administrative"
                 and str(tags.get("admin_level")) == "8"
-                and isinstance(name, str)
-                and name.strip()
             ):
-                return name.strip()[:200]
+                name = localized_name(tags)
+                if name:
+                    return name[:200]
         return None
 
     @staticmethod

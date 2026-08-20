@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 
 import pytest
@@ -11,6 +12,7 @@ from app.ai import (
 )
 from app.main import app
 from app.osm import ResolvedPlace, get_place_resolver
+from app.worker import process_next_job
 
 
 pytestmark = pytest.mark.system
@@ -140,6 +142,8 @@ def test_user_journey_from_registration_to_place_activity_and_messaging(
         websocket.send_json(
             {"type": "message", "text": "Study group starts at four."}
         )
+        assert websocket.receive_json()["type"] == "queued"
+        assert asyncio.run(process_next_job(adapter)) is True
         published = websocket.receive_json()
 
     assert published["type"] == "message"
@@ -165,6 +169,7 @@ def test_user_journey_from_registration_to_place_activity_and_messaging(
     assert forum_post.status_code == 201
     assert forum_post.json()["nickname"] == "Anonymous"
     assert forum_post.json()["user_id"] is None
+    assert asyncio.run(process_next_job(adapter)) is True
 
     second_user_id, second_token = register_login(
         client, "0500090002", "Message Recipient"

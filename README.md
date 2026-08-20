@@ -89,6 +89,7 @@ On macOS or Linux, use `cp .env.example .env`. Docker Compose reads the root `.e
 | `OVERPASS_URL` | `http://overpass/api` | Keep the Docker-internal URL unless deliberately connecting the backend to another Overpass service. |
 | `OVERPASS_PLANET_URL` | Israel and Palestine Geofabrik PBF | Override the extract downloaded when the Overpass volume is initialized. |
 | `OVERPASS_TIMEOUT_SECONDS` | `20` | Change the heartbeat lookup and query timeout. |
+| `PLACE_NAME_LANGUAGE` | `en` | Preferred `name:<lang>` OSM tag for place names (falls back to the default `name` tag when missing). Set empty to always use `name`. |
 | `MAX_REQUEST_BODY_BYTES` | `11534336` (11 MiB) | Change the backend-wide request cap. It must leave multipart overhead above the 10 MiB DIG limit. |
 | `MAX_CONCURRENT_HTTP_REQUESTS` | `50` | Change the per-backend in-flight HTTP limit. |
 | `MAX_WEBSOCKET_CONNECTIONS` | `100` | Change the per-backend WebSocket limit. |

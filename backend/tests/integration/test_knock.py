@@ -1,6 +1,7 @@
 import asyncio
 import secrets
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -50,6 +51,8 @@ class FakeKnockAI:
         self.moderation_calls = 0
         self.routing_calls = 0
         self.routing_places: list[PlaceRouteOption] = []
+        self.routing_started: threading.Event | None = None
+        self.routing_release: threading.Event | None = None
         self.moderation_started: threading.Event | None = None
         self.moderation_release: threading.Event | None = None
 
@@ -65,6 +68,9 @@ class FakeKnockAI:
     ) -> object:
         self.routing_calls += 1
         self.routing_places = list(places)
+        if self.routing_started is not None and self.routing_release is not None:
+            self.routing_started.set()
+            await asyncio.to_thread(self.routing_release.wait, 5)
         return RoutingDecision(
             place_id=self.route_place_id or places[-1].place_id,
             reason="Selected the matching place layer",
@@ -159,6 +165,22 @@ def assert_ready(websocket) -> None:
     assert ready["type"] == "ready"
 
 
+def run_knock_check(fake_ai: FakeKnockAI) -> bool:
+    """Simulate the worker resolving the single queued KNOCK-check job."""
+    return asyncio.run(process_next_job(fake_ai))
+
+
+def send_message(socket, text: str, client_id: str | None = None) -> dict:
+    """Send a KNOCK and wait for the synchronous 'queued' acknowledgement."""
+    payload: dict = {"type": "message", "text": text}
+    if client_id is not None:
+        payload["client_id"] = client_id
+    socket.send_json(payload)
+    ack = socket.receive_json()
+    assert ack["type"] == "queued"
+    return ack
+
+
 def test_same_place_users_receive_live_message(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:
@@ -170,7 +192,8 @@ def test_same_place_users_receive_live_message(
         assert_ready(sender_socket)
         with client.websocket_connect(websocket_path(recipient)) as recipient_socket:
             assert_ready(recipient_socket)
-            sender_socket.send_json({"type": "message", "text": "Study group?"})
+            send_message(sender_socket, "Study group?")
+            assert run_knock_check(fake_ai) is True
 
             sent = sender_socket.receive_json()
             received = recipient_socket.receive_json()
@@ -180,7 +203,7 @@ def test_same_place_users_receive_live_message(
     assert received["message"]["text"] == "Study group?"
     assert received["message"]["place_id"] == place_id
     assert received["message"]["place_display_name"] == "Course Library, Haifa"
-    assert fake_ai.routing_calls == 1
+    assert fake_ai.routing_calls == 0
     assert fake_ai.moderation_calls == 1
 
 
@@ -197,10 +220,12 @@ def test_cross_place_rooms_are_isolated(
         assert_ready(first_socket)
         with client.websocket_connect(websocket_path(second_user)) as second_socket:
             assert_ready(second_socket)
-            first_socket.send_json({"type": "message", "text": "North only"})
+            send_message(first_socket, "North only")
+            assert run_knock_check(fake_ai) is True
             assert first_socket.receive_json()["message"]["text"] == "North only"
 
-            second_socket.send_json({"type": "message", "text": "South only"})
+            send_message(second_socket, "South only")
+            assert run_knock_check(fake_ai) is True
             second_received = second_socket.receive_json()
 
     assert second_received["message"]["text"] == "South only"
@@ -211,27 +236,31 @@ def test_cross_place_rooms_are_isolated(
 def test_knock_routing_rejects_an_invented_scope(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:
-    current_place = create_place("Current Place", 2110)
+    campus_id = create_place("Invented Scope Campus", 2110)
+    building_id = create_place(
+        "Invented Scope Building", 2111, parent_place_id=campus_id
+    )
     sender = create_present_user(
-        "0500001110", "Routed Sender", [current_place]
+        "0500001110", "Routed Sender", [campus_id, building_id]
     )
     fake_ai.route_place_id = 999
 
     with client.websocket_connect(websocket_path(sender)) as websocket:
         assert_ready(websocket)
-        websocket.send_json(
-            {
-                "type": "message",
-                "text": "This must not escape the active scopes",
-            }
-        )
+        send_message(websocket, "This must not escape the active scopes")
+        assert run_knock_check(fake_ai) is True
         rejected = websocket.receive_json()
 
     assert rejected["type"] == "error"
     assert rejected["code"] == "routing_failed"
-    assert [place.place_id for place in fake_ai.routing_places] == [current_place]
+    assert {place.place_id for place in fake_ai.routing_places} == {
+        campus_id,
+        building_id,
+    }
     with SessionLocal() as db:
-        assert db.scalar(select(func.count()).select_from(KnockMessage)) == 0
+        assert db.scalar(select(func.count()).select_from(KnockMessage)) == 1
+        saved = db.scalar(select(KnockMessage))
+        assert saved.moderation_status == "denied"
 
 
 @pytest.mark.security
@@ -258,22 +287,19 @@ def test_visitor_moderation_rejection_is_not_published(
 
     with client.websocket_connect(websocket_path(visitor)) as websocket:
         assert_ready(websocket)
-        websocket.send_json(
-            {
-                "type": "message",
-                "client_id": "visitor-rejected-1",
-                "text": "Rejected text",
-            }
-        )
+        send_message(websocket, "Rejected text", client_id="visitor-rejected-1")
+        assert run_knock_check(fake_ai) is True
         rejected = websocket.receive_json()
 
     assert rejected["type"] == "error"
     assert rejected["code"] == "moderation_rejected"
     assert rejected["client_id"] == "visitor-rejected-1"
-    assert fake_ai.routing_calls == 1
+    assert fake_ai.routing_calls == 0
     assert fake_ai.moderation_calls == 1
     with SessionLocal() as db:
-        assert db.scalar(select(func.count()).select_from(KnockMessage)) == 0
+        assert db.scalar(select(func.count()).select_from(KnockMessage)) == 1
+        saved = db.scalar(select(KnockMessage))
+        assert saved.moderation_status == "denied"
 
 
 def test_reconnecting_user_can_send_and_load_saved_history(
@@ -284,12 +310,14 @@ def test_reconnecting_user_can_send_and_load_saved_history(
 
     with client.websocket_connect(websocket_path(user)) as websocket:
         assert_ready(websocket)
-        websocket.send_json({"type": "message", "text": "Before reconnect"})
+        send_message(websocket, "Before reconnect")
+        assert run_knock_check(fake_ai) is True
         assert websocket.receive_json()["type"] == "message"
 
     with client.websocket_connect(websocket_path(user)) as websocket:
         assert_ready(websocket)
-        websocket.send_json({"type": "message", "text": "After reconnect"})
+        send_message(websocket, "After reconnect")
+        assert run_knock_check(fake_ai) is True
         assert websocket.receive_json()["message"]["text"] == "After reconnect"
 
     history = client.get(
@@ -309,33 +337,34 @@ def test_visitor_pending_message_survives_history_reload_and_stays_private(
     place_id = create_place("Pending Knock Hall", 2302)
     sender = create_present_user("0500001302", "Pending Sender", [place_id])
     viewer = create_present_user("0500001303", "Waiting Viewer", [place_id])
+    # A single active place skips AI routing, so the only in-flight AI call
+    # left to pause on for a VISITOR message is moderation.
     fake_ai.moderation_started = threading.Event()
     fake_ai.moderation_release = threading.Event()
 
     with client.websocket_connect(websocket_path(sender)) as websocket:
         assert_ready(websocket)
-        websocket.send_json(
-            {
-                "type": "message",
-                "client_id": "pending-refresh-1",
-                "text": "This message is still being checked",
-            }
-        )
-        assert fake_ai.moderation_started.wait(2)
+        send_message(websocket, "This message is still being checked", client_id="pending-refresh-1")
 
-        sender_history = client.get(
-            "/api/knock/history",
-            headers={"Authorization": f"Bearer {sender.token}"},
-        )
-        viewer_history = client.get(
-            "/api/knock/history",
-            headers={"Authorization": f"Bearer {viewer.token}"},
-        )
-        assert sender_history.status_code == 200
-        assert sender_history.json()["messages"][0]["moderation_status"] == "pending"
-        assert viewer_history.json()["messages"] == []
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            job_future = executor.submit(run_knock_check, fake_ai)
+            assert fake_ai.moderation_started.wait(2)
 
-        fake_ai.moderation_release.set()
+            sender_history = client.get(
+                "/api/knock/history",
+                headers={"Authorization": f"Bearer {sender.token}"},
+            )
+            viewer_history = client.get(
+                "/api/knock/history",
+                headers={"Authorization": f"Bearer {viewer.token}"},
+            )
+            assert sender_history.status_code == 200
+            assert sender_history.json()["messages"][0]["moderation_status"] == "pending"
+            assert viewer_history.json()["messages"] == []
+
+            fake_ai.moderation_release.set()
+            assert job_future.result(timeout=5) is True
+
         published = websocket.receive_json()
 
     assert published["type"] == "message"
@@ -352,16 +381,17 @@ def test_belong_message_is_immediate_and_queued_for_background_check(
 
     with client.websocket_connect(websocket_path(belong_user)) as websocket:
         assert_ready(websocket)
-        websocket.send_json({"type": "message", "text": "Immediate message"})
+        send_message(websocket, "Immediate message")
+        assert run_knock_check(fake_ai) is True
         published = websocket.receive_json()
 
     assert published["type"] == "message"
     assert published["message"]["author_rank"] == "BELONG"
     assert published["message"]["moderation_status"] == "post_pending"
-    assert fake_ai.routing_calls == 1
+    assert fake_ai.routing_calls == 0
     assert fake_ai.moderation_calls == 0
     with SessionLocal() as db:
-        job = db.scalar(select(AIJob))
+        job = db.scalar(select(AIJob).where(AIJob.job_type == "text_moderation"))
         assert job is not None
         assert job.status == "pending"
         assert job.payload["knock_message_id"] == published["message"]["id"]
@@ -418,7 +448,8 @@ def test_belong_message_background_approval_updates_status_and_history(
 
     with client.websocket_connect(websocket_path(belong_user)) as websocket:
         assert_ready(websocket)
-        websocket.send_json({"type": "message", "text": "Safe message"})
+        send_message(websocket, "Safe message")
+        assert run_knock_check(fake_ai) is True
         published = websocket.receive_json()["message"]
 
     assert published["moderation_status"] == "post_pending"
@@ -458,7 +489,8 @@ def test_moderation_status_is_isolated_to_current_places(
 
     with client.websocket_connect(websocket_path(sender)) as websocket:
         assert_ready(websocket)
-        websocket.send_json({"type": "message", "text": "Other place"})
+        send_message(websocket, "Other place")
+        assert run_knock_check(fake_ai) is True
         message_id = websocket.receive_json()["message"]["id"]
 
     status = client.get(
@@ -495,26 +527,20 @@ def test_nested_message_is_sent_only_to_ai_routed_place_scope(
                 websocket_path(building_user)
             ) as building_socket:
                 assert_ready(building_socket)
-                sender_socket.send_json(
-                    {
-                        "type": "message",
-                        "text": "Meet inside the building",
-                    }
-                )
+                send_message(sender_socket, "Meet inside the building")
+                assert run_knock_check(fake_ai) is True
                 assert sender_socket.receive_json()["message"]["place_id"] == building_id
                 building_received = building_socket.receive_json()
 
-                campus_socket.send_json(
-                    {
-                        "type": "message",
-                        "text": "Campus announcement",
-                    }
-                )
+                send_message(campus_socket, "Campus announcement")
+                assert run_knock_check(fake_ai) is True
                 campus_received = campus_socket.receive_json()
 
     assert building_received["message"]["text"] == "Meet inside the building"
     assert campus_received["message"]["text"] == "Campus announcement"
-    assert fake_ai.routing_calls == 2
+    # Only the sender (present at both places) needs an AI routing choice;
+    # campus_user has a single active place and skips routing entirely.
+    assert fake_ai.routing_calls == 1
 
 
 def test_nested_message_can_use_parent_scope_while_preserving_origin(
@@ -538,12 +564,8 @@ def test_nested_message_can_use_parent_scope_while_preserving_origin(
         assert_ready(sender_socket)
         with client.websocket_connect(websocket_path(campus_user)) as campus_socket:
             assert_ready(campus_socket)
-            sender_socket.send_json(
-                {
-                    "type": "message",
-                    "text": "Campus event starts soon",
-                }
-            )
+            send_message(sender_socket, "Campus event starts soon")
+            assert run_knock_check(fake_ai) is True
             sent = sender_socket.receive_json()["message"]
             received = campus_socket.receive_json()["message"]
 
@@ -573,11 +595,13 @@ def test_history_combines_all_current_knock_scopes(
     with client.websocket_connect(websocket_path(sender)) as websocket:
         assert_ready(websocket)
         fake_ai.route_place_id = building_id
-        websocket.send_json({"type": "message", "text": "Building update"})
+        send_message(websocket, "Building update")
+        assert run_knock_check(fake_ai) is True
         building_message = websocket.receive_json()["message"]
 
         fake_ai.route_place_id = campus_id
-        websocket.send_json({"type": "message", "text": "Campus update"})
+        send_message(websocket, "Campus update")
+        assert run_knock_check(fake_ai) is True
         campus_message = websocket.receive_json()["message"]
 
     history = client.get(
@@ -593,3 +617,48 @@ def test_history_combines_all_current_knock_scopes(
     assert {
         message["place_id"] for message in history.json()["messages"]
     } == {campus_id, building_id}
+
+
+@pytest.mark.security
+def test_denied_knock_message_is_visible_to_author_for_fifteen_minutes(
+    client: TestClient, fake_ai: FakeKnockAI
+) -> None:
+    place_id = create_place("Expiry Hall", 2601)
+    visitor = create_present_user("0500001601", "Expiry Visitor", [place_id])
+    other = create_present_user("0500001602", "Other Viewer", [place_id])
+    fake_ai.moderation = ModerationDecision(
+        approved=False,
+        reason="Not allowed",
+        categories=["harassment"],
+    )
+
+    with client.websocket_connect(websocket_path(visitor)) as websocket:
+        assert_ready(websocket)
+        send_message(websocket, "Rejected text")
+        assert run_knock_check(fake_ai) is True
+        rejected = websocket.receive_json()
+
+    assert rejected["code"] == "moderation_rejected"
+
+    just_after = client.get(
+        "/api/knock/history",
+        headers={"Authorization": f"Bearer {visitor.token}"},
+    )
+    assert just_after.status_code == 200
+    assert just_after.json()["messages"][0]["moderation_status"] == "denied"
+
+    other_view = client.get(
+        "/api/knock/history",
+        headers={"Authorization": f"Bearer {other.token}"},
+    )
+    assert other_view.json()["messages"] == []
+
+    with SessionLocal.begin() as db:
+        message = db.scalar(select(KnockMessage))
+        message.decided_at = utc_now() - timedelta(minutes=16)
+
+    expired = client.get(
+        "/api/knock/history",
+        headers={"Authorization": f"Bearer {visitor.token}"},
+    )
+    assert expired.json()["messages"] == []

@@ -24,6 +24,7 @@ from app.main import app
 from app.models import (
     AuthSession,
     ForumComment,
+    ForumCommentVote,
     ForumPost,
     ForumVote,
     MediaAttachment,
@@ -32,6 +33,7 @@ from app.models import (
     Presence,
     User,
 )
+from app.worker import process_next_job
 
 
 pytestmark = pytest.mark.integration
@@ -89,6 +91,11 @@ def fake_forum_ai():
     app.dependency_overrides[get_ai_adapter] = lambda: adapter
     yield adapter
     app.dependency_overrides.pop(get_ai_adapter, None)
+
+
+def process_forum_job(fake_forum_ai: FakeForumAI) -> bool:
+    """Simulate the worker resolving one queued forum post/comment check."""
+    return asyncio.run(process_next_job(fake_forum_ai))
 
 
 def create_place(
@@ -189,6 +196,21 @@ def create_post(
     )
 
 
+def create_approved_post(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+    identity: SessionIdentity,
+    *,
+    anonymous: bool = False,
+    place_id: int | None = None,
+):
+    created = create_post(client, identity, anonymous=anonymous, place_id=place_id)
+    assert created.status_code == 201
+    assert created.json()["moderation_status"] == "pending"
+    assert process_forum_job(fake_forum_ai) is True
+    return created
+
+
 @pytest.mark.security
 def test_anonymous_post_hides_identity_and_personal_area_keeps_totals(
     client: TestClient,
@@ -198,9 +220,7 @@ def test_anonymous_post_hides_identity_and_personal_area_keeps_totals(
     author = create_user("0500005001", "Quiet Author", [place_id])
     voter = create_user("0500005002", "Helpful Voter", [place_id])
 
-    created = create_post(client, author, anonymous=True)
-
-    assert created.status_code == 201
+    created = create_approved_post(client, fake_forum_ai, author, anonymous=True)
     post = created.json()
     assert post["nickname"] == "Anonymous"
     assert post["user_id"] is None
@@ -213,6 +233,7 @@ def test_anonymous_post_hides_identity_and_personal_area_keeps_totals(
         headers=auth_headers(voter),
     )
     public_post = public_feed.json()["posts"][0]
+    assert public_post["moderation_status"] == "approved"
     assert public_post["nickname"] == "Anonymous"
     assert public_post["user_id"] is None
     assert public_post["is_mine"] is False
@@ -248,13 +269,17 @@ def test_comments_and_votes_are_saved_and_can_be_changed(
     place_id = create_place("Discussion Hall", 5002)
     author = create_user("0500005003", "Post Author", [place_id])
     participant = create_user("0500005004", "Commenter", [place_id])
-    post_id = create_post(client, author).json()["id"]
+    post_id = create_approved_post(client, fake_forum_ai, author).json()["id"]
 
     comment = client.post(
         f"/api/forum/posts/{post_id}/comments",
         headers=auth_headers(participant),
         json={"text": "  I can join after my lecture.  "},
     )
+    assert comment.status_code == 201
+    assert comment.json()["moderation_status"] == "pending"
+    assert process_forum_job(fake_forum_ai) is True
+
     upvote = client.put(
         f"/api/forum/posts/{post_id}/vote",
         headers=auth_headers(participant),
@@ -270,7 +295,6 @@ def test_comments_and_votes_are_saved_and_can_be_changed(
         headers=auth_headers(participant),
     )
 
-    assert comment.status_code == 201
     assert comment.json()["text"] == "I can join after my lecture."
     assert upvote.json()["score"] == 1
     assert downvote.json() == {
@@ -291,7 +315,8 @@ def test_comments_and_votes_are_saved_and_can_be_changed(
         "/api/forum",
         headers=auth_headers(author),
     ).json()
-    assert feed["posts"][0]["comments"] == [comment.json()]
+    assert feed["posts"][0]["comments"][0]["id"] == comment.json()["id"]
+    assert feed["posts"][0]["comments"][0]["moderation_status"] == "approved"
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(ForumComment)) == 1
         assert db.scalar(select(func.count()).select_from(ForumVote)) == 0
@@ -307,13 +332,13 @@ def test_pending_post_and_comment_survive_feed_reload_and_stay_private(
 
     fake_forum_ai.moderation_started = threading.Event()
     fake_forum_ai.moderation_release = threading.Event()
+    created = create_post(client, author, place_id=place_id)
+    assert created.status_code == 201
+    assert created.json()["moderation_status"] == "pending"
+    post_id = created.json()["id"]
+
     with ThreadPoolExecutor(max_workers=1) as executor:
-        post_future = executor.submit(
-            create_post,
-            client,
-            author,
-            place_id=place_id,
-        )
+        job_future = executor.submit(process_forum_job, fake_forum_ai)
         assert fake_forum_ai.moderation_started.wait(2)
 
         author_feed = client.get(
@@ -326,21 +351,24 @@ def test_pending_post_and_comment_survive_feed_reload_and_stay_private(
         assert viewer_feed["posts"] == []
 
         fake_forum_ai.moderation_release.set()
-        created = post_future.result(timeout=5)
+        assert job_future.result(timeout=5) is True
 
-    assert created.status_code == 201
-    post_id = created.json()["id"]
-    assert created.json()["moderation_status"] == "approved"
+    with SessionLocal() as db:
+        post = db.get(ForumPost, post_id)
+        assert post.moderation_status == "approved"
 
     fake_forum_ai.moderation_started = threading.Event()
     fake_forum_ai.moderation_release = threading.Event()
+    comment_response = client.post(
+        f"/api/forum/posts/{post_id}/comments",
+        headers=auth_headers(author),
+        json={"text": "This comment is still being checked."},
+    )
+    assert comment_response.status_code == 201
+    comment_id = comment_response.json()["id"]
+
     with ThreadPoolExecutor(max_workers=1) as executor:
-        comment_future = executor.submit(
-            client.post,
-            f"/api/forum/posts/{post_id}/comments",
-            headers=auth_headers(author),
-            json={"text": "This comment is still being checked."},
-        )
+        job_future = executor.submit(process_forum_job, fake_forum_ai)
         assert fake_forum_ai.moderation_started.wait(2)
 
         author_post = client.get(
@@ -353,10 +381,11 @@ def test_pending_post_and_comment_survive_feed_reload_and_stay_private(
         assert viewer_post["comments"] == []
 
         fake_forum_ai.moderation_release.set()
-        comment = comment_future.result(timeout=5)
+        assert job_future.result(timeout=5) is True
 
-    assert comment.status_code == 201
-    assert comment.json()["moderation_status"] == "approved"
+    with SessionLocal() as db:
+        comment = db.get(ForumComment, comment_id)
+        assert comment.moderation_status == "approved"
 
 
 @pytest.mark.security
@@ -389,7 +418,12 @@ def test_presence_and_moderation_are_required_before_publication(
         categories=["harassment"],
     )
     rejected = create_post(client, outsider)
-    assert rejected.status_code == 422
+    assert rejected.status_code == 201
+    assert rejected.json()["moderation_status"] == "pending"
+    assert process_forum_job(fake_forum_ai) is True
+    with SessionLocal() as db:
+        post = db.get(ForumPost, rejected.json()["id"])
+        assert post.moderation_status == "denied"
 
     injection = client.post(
         "/api/forum/posts",
@@ -400,10 +434,28 @@ def test_presence_and_moderation_are_required_before_publication(
             "is_anonymous": False,
         },
     )
-    assert injection.status_code == 422
+    assert injection.status_code == 201
+    assert process_forum_job(fake_forum_ai) is True
+    with SessionLocal() as db:
+        post = db.get(ForumPost, injection.json()["id"])
+        assert post.moderation_status == "denied"
+
     assert len(fake_forum_ai.calls) == 1
     with SessionLocal() as db:
-        assert db.scalar(select(func.count()).select_from(ForumPost)) == 0
+        assert db.scalar(select(func.count()).select_from(ForumPost)) == 2
+        statuses = set(
+            db.scalars(select(ForumPost.moderation_status))
+        )
+        assert statuses == {"denied"}
+
+    denied_feed = client.get(
+        "/api/forum",
+        headers=auth_headers(outsider),
+    )
+    assert denied_feed.status_code == 200
+    assert {post["moderation_status"] for post in denied_feed.json()["posts"]} == {
+        "denied"
+    }
 
 
 def test_parent_forum_scope_records_origin_and_allows_sibling_place_user(
@@ -424,9 +476,8 @@ def test_parent_forum_scope_records_origin_and_allows_sibling_place_user(
         "0500005011", "Campus Viewer", [campus_id, second_building_id]
     )
 
-    created = create_post(client, author, place_id=campus_id)
+    created = create_approved_post(client, fake_forum_ai, author, place_id=campus_id)
 
-    assert created.status_code == 201
     assert created.json()["place_id"] == campus_id
     assert created.json()["origin_place_id"] == first_building_id
     assert fake_forum_ai.route_calls == 0
@@ -459,9 +510,13 @@ def test_location_feed_uses_only_the_selected_scope_and_excludes_others(
         "0500005022", "Unrelated Author", [unrelated_id]
     )
 
-    campus_post = create_post(client, author, place_id=campus_id)
-    building_post = create_post(client, author, place_id=building_id)
-    unrelated_post = create_post(client, unrelated_author)
+    campus_post = create_approved_post(
+        client, fake_forum_ai, author, place_id=campus_id
+    )
+    building_post = create_approved_post(
+        client, fake_forum_ai, author, place_id=building_id
+    )
+    unrelated_post = create_approved_post(client, fake_forum_ai, unrelated_author)
 
     campus_feed = client.get(
         f"/api/forum?place_id={campus_id}", headers=auth_headers(viewer)
@@ -502,6 +557,8 @@ def test_post_and_comment_media_are_moderated_saved_and_returned(
         files={"file": ("courtyard.jpg", jpeg_bytes(), "image/jpeg")},
     )
     assert post.status_code == 201
+    assert post.json()["moderation_status"] == "pending"
+    assert process_forum_job(fake_forum_ai) is True
     post_body = post.json()
     assert post_body["media"]["media_type"] == "image"
     assert client.get(
@@ -515,12 +572,13 @@ def test_post_and_comment_media_are_moderated_saved_and_returned(
         files={"file": ("angle.jpg", jpeg_bytes(), "image/jpeg")},
     )
     assert comment.status_code == 201
-    assert comment.json()["media"]["original_filename"] == "angle.jpg"
+    assert process_forum_job(fake_forum_ai) is True
+
     feed_post = client.get(
         f"/api/forum?place_id={place_id}", headers=auth_headers(author)
     ).json()["posts"][0]
     assert feed_post["media"]["id"] == post_body["media"]["id"]
-    assert feed_post["comments"][0]["media"]["id"] == comment.json()["media"]["id"]
+    assert feed_post["comments"][0]["media"]["original_filename"] == "angle.jpg"
     assert fake_forum_ai.media_calls == 2
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(MediaAttachment)) == 2
@@ -545,7 +603,171 @@ def test_rejected_forum_media_does_not_publish_content(
         files={"file": ("unsafe.jpg", jpeg_bytes(), "image/jpeg")},
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 201
+    assert response.json()["moderation_status"] == "pending"
+    assert process_forum_job(fake_forum_ai) is True
+
     with SessionLocal() as db:
-        assert db.scalar(select(func.count()).select_from(ForumPost)) == 0
+        post = db.get(ForumPost, response.json()["id"])
+        assert post.moderation_status == "denied"
         assert db.scalar(select(func.count()).select_from(MediaAttachment)) == 0
+
+
+@pytest.mark.security
+def test_denied_forum_post_is_visible_to_author_for_fifteen_minutes(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+) -> None:
+    place_id = create_place("Denial Expiry Forum", 5040)
+    author = create_user("0500005040", "Denied Author", [place_id])
+    viewer = create_user("0500005041", "Other Viewer", [place_id])
+    fake_forum_ai.decision = ModerationDecision(
+        approved=False,
+        reason="Not allowed",
+        categories=["harassment"],
+    )
+
+    created = create_post(client, author, place_id=place_id)
+    assert created.status_code == 201
+    assert process_forum_job(fake_forum_ai) is True
+    post_id = created.json()["id"]
+
+    just_after = client.get(
+        f"/api/forum?place_id={place_id}", headers=auth_headers(author)
+    )
+    assert [post["moderation_status"] for post in just_after.json()["posts"]] == [
+        "denied"
+    ]
+
+    viewer_feed = client.get(
+        f"/api/forum?place_id={place_id}", headers=auth_headers(viewer)
+    )
+    assert viewer_feed.json()["posts"] == []
+
+    with SessionLocal.begin() as db:
+        post = db.get(ForumPost, post_id)
+        post.decided_at = datetime.now(timezone.utc) - timedelta(minutes=16)
+
+    expired = client.get(
+        f"/api/forum?place_id={place_id}", headers=auth_headers(author)
+    )
+    assert expired.json()["posts"] == []
+
+
+def test_status_endpoint_reports_own_pending_items_but_not_others(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+) -> None:
+    place_id = create_place("Status Poll Forum", 5041)
+    author = create_user("0500005050", "Status Author", [place_id])
+    other = create_user("0500005051", "Status Other", [place_id])
+
+    created = create_post(client, author, place_id=place_id)
+    assert created.status_code == 201
+    pending_post_id = created.json()["id"]
+
+    own_status = client.get(
+        "/api/forum/status",
+        params={"post_ids": [pending_post_id]},
+        headers=auth_headers(author),
+    )
+    other_status = client.get(
+        "/api/forum/status",
+        params={"post_ids": [pending_post_id]},
+        headers=auth_headers(other),
+    )
+    assert own_status.json()["posts"] == [
+        {"id": pending_post_id, "moderation_status": "pending", "decided_at": None}
+    ]
+    assert other_status.json()["posts"] == []
+
+    assert process_forum_job(fake_forum_ai) is True
+
+    resolved_status = client.get(
+        "/api/forum/status",
+        params={"post_ids": [pending_post_id]},
+        headers=auth_headers(other),
+    )
+    assert resolved_status.json()["posts"][0]["moderation_status"] == "approved"
+
+
+def test_comment_votes_are_saved_and_can_be_changed(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+) -> None:
+    place_id = create_place("Comment Vote Forum", 5042)
+    author = create_user("0500005052", "Comment Vote Author", [place_id])
+    voter = create_user("0500005053", "Comment Voter", [place_id])
+    post_id = create_approved_post(client, fake_forum_ai, author).json()["id"]
+
+    comment = client.post(
+        f"/api/forum/posts/{post_id}/comments",
+        headers=auth_headers(author),
+        json={"text": "First reply"},
+    )
+    assert comment.status_code == 201
+    assert comment.json()["upvotes"] == 0
+    assert comment.json()["score"] == 0
+    assert process_forum_job(fake_forum_ai) is True
+    comment_id = comment.json()["id"]
+
+    upvote = client.put(
+        f"/api/forum/comments/{comment_id}/vote",
+        headers=auth_headers(voter),
+        json={"value": 1},
+    )
+    assert upvote.status_code == 200
+    assert upvote.json() == {"upvotes": 1, "downvotes": 0, "score": 1, "my_vote": 1}
+
+    downvote = client.put(
+        f"/api/forum/comments/{comment_id}/vote",
+        headers=auth_headers(voter),
+        json={"value": -1},
+    )
+    assert downvote.json() == {
+        "upvotes": 0,
+        "downvotes": 1,
+        "score": -1,
+        "my_vote": -1,
+    }
+
+    removed = client.delete(
+        f"/api/forum/comments/{comment_id}/vote",
+        headers=auth_headers(voter),
+    )
+    assert removed.json() == {"upvotes": 0, "downvotes": 0, "score": 0, "my_vote": 0}
+
+    feed = client.get(
+        f"/api/forum?place_id={place_id}", headers=auth_headers(author)
+    ).json()
+    assert feed["posts"][0]["comments"][0]["score"] == 0
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(ForumCommentVote)) == 0
+
+
+@pytest.mark.security
+def test_cannot_vote_on_a_comment_without_place_presence(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+) -> None:
+    place_id = create_place("Restricted Comment Vote Forum", 5043)
+    author = create_user("0500005054", "Restricted Author", [place_id])
+    outsider = create_user("0500005055", "Restricted Outsider")
+    post_id = create_approved_post(client, fake_forum_ai, author).json()["id"]
+
+    comment = client.post(
+        f"/api/forum/posts/{post_id}/comments",
+        headers=auth_headers(author),
+        json={"text": "Members only reply"},
+    )
+    assert process_forum_job(fake_forum_ai) is True
+    comment_id = comment.json()["id"]
+
+    denied = client.put(
+        f"/api/forum/comments/{comment_id}/vote",
+        headers=auth_headers(outsider),
+        json={"value": 1},
+    )
+    assert denied.status_code == 403
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(ForumCommentVote)) == 0

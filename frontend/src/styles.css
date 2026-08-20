@@ -1011,6 +1011,11 @@ dd {
   background: #f8faf9;
 }
 
+.forum-scroll-view {
+  min-width: 0;
+  min-height: 0;
+}
+
 .forum-post {
   overflow: hidden;
   border: 1px solid #d8e5de;
@@ -1105,6 +1110,37 @@ dd {
   padding: 0.8rem 0.9rem;
   border-top: 1px solid #e2ebe6;
   background: #fbfcfb;
+}
+
+.forum-comment-votes {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.2rem;
+}
+
+.forum-comment-votes button {
+  padding: 0.2rem 0.42rem;
+  border: 1px solid #d0dfd5;
+  border-radius: 0.4rem;
+  background: #f7faf8;
+  color: #536c65;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.forum-comment-votes button.active {
+  border-color: #8ebdad;
+  background: #e0f5e8;
+  color: #17623f;
+}
+
+.forum-comment-votes span {
+  min-width: 1.4rem;
+  color: #536c65;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-align: center;
 }
 
 .forum-comment {
@@ -2472,12 +2508,27 @@ button:focus-visible {
   padding-right: 4.5rem;
 }
 
-.map-overlay .explore-feed,
-.map-overlay .forum-feed {
+.map-overlay .explore-feed {
   min-height: 0;
   max-height: none;
   overflow-y: auto;
   padding: 0 clamp(1.25rem, 4vw, 3rem) 2rem;
+  background: transparent;
+}
+
+.map-overlay .forum-scroll-view {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 clamp(1.25rem, 4vw, 3rem) 2rem;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.map-overlay .forum-feed {
+  max-height: none;
+  overflow: visible;
+  padding: 0;
   background: transparent;
 }
 
@@ -2499,14 +2550,16 @@ button:focus-visible {
   flex: 0 0 auto;
 }
 
-.map-overlay .explore-card,
-.map-overlay .forum-card {
+.map-overlay .explore-card {
   display: flex;
   flex-direction: column;
 }
 
-.map-overlay .explore-feed,
-.map-overlay .forum-feed {
+.map-overlay .forum-card {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.map-overlay .explore-feed {
   flex: 1 1 auto;
 }
 
@@ -2996,7 +3049,7 @@ button:focus-visible {
   }
 
   .map-overlay .explore-feed,
-  .map-overlay .forum-feed {
+  .map-overlay .forum-scroll-view {
     padding: 0 0.75rem 5rem;
   }
 
@@ -3095,6 +3148,30 @@ button:focus-visible {
   animation: pending-blink 1.3s ease-in-out infinite;
 }
 
+.background-check-status {
+  display: inline-flex;
+  width: max-content;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.42rem;
+  border-radius: 999px;
+  background: #dcece4;
+  color: #2f5c4c !important;
+  font-size: 0.64rem !important;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.background-check-status::before {
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: #4f9678;
+  content: "";
+  animation: pending-blink 1.3s ease-in-out infinite;
+}
+
 .pending-explanation {
   display: block;
   margin-top: 0.45rem;
@@ -3163,8 +3240,7 @@ button:focus-visible {
   min-height: 0;
 }
 
-.map-overlay .explore-feed,
-.map-overlay .forum-feed {
+.map-overlay .explore-feed {
   height: 0;
   min-height: 0;
   align-content: start;
@@ -3578,7 +3654,8 @@ button:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pending-status::before {
+  .pending-status::before,
+  .background-check-status::before {
     animation: none;
   }
 }

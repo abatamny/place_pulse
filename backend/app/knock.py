@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -19,13 +20,17 @@ from sqlalchemy.orm import aliased
 from app.ai import (
     AIAdapter,
     PlaceRouteOption,
-    get_ai_adapter,
     moderate_before_publication,
     route_before_publication,
 )
 from app.auth import AuthContext, InvalidSessionError, require_auth, resolve_session
 from app.database import SessionLocal
-from app.jobs import PENDING, TEXT_MODERATION_JOB
+from app.jobs import (
+    DENIAL_VISIBLE_SECONDS,
+    PENDING,
+    TEXT_MODERATION_JOB,
+    queue_knock_check,
+)
 from app.models import AIJob, KnockMessage, Place, PlaceMembership, Presence, User
 from app.place_labels import place_display_name
 from app.place_scope import resolve_content_place_scope
@@ -41,6 +46,13 @@ from app.schemas import (
 
 HISTORY_LIMIT = 50
 MESSAGES_PER_MINUTE = 20
+BROADCAST_POLL_SECONDS = 0.3
+BROADCAST_BATCH_LIMIT = 50
+
+DENY_MESSAGES = {
+    "routing_failed": "The KNOCK could not be routed to a current place. Try again.",
+    "moderation_rejected": "The KNOCK did not pass the safety check.",
+}
 
 knock_router = APIRouter(prefix="/api/knock", tags=["KNOCK"])
 knock_websocket_router = APIRouter()
@@ -48,6 +60,7 @@ knock_rate_limiter = AuthRateLimiter(
     max_attempts=MESSAGES_PER_MINUTE,
     window_seconds=60,
 )
+logger = logging.getLogger("placepulse.knock")
 
 
 def utc_now() -> datetime:
@@ -154,6 +167,7 @@ class RoomConnection:
 class KnockRoomManager:
     def __init__(self) -> None:
         self.rooms: dict[int, set[RoomConnection]] = defaultdict(set)
+        self.user_connections: dict[int, set[RoomConnection]] = defaultdict(set)
 
     async def connect(
         self, websocket: WebSocket, user_id: int, place_ids: set[int]
@@ -166,6 +180,7 @@ class KnockRoomManager:
         )
         for place_id in place_ids:
             self.rooms[place_id].add(connection)
+        self.user_connections[user_id].add(connection)
         return connection
 
     def update_places(
@@ -185,6 +200,9 @@ class KnockRoomManager:
             if not self.rooms[place_id]:
                 self.rooms.pop(place_id, None)
         connection.place_ids.clear()
+        self.user_connections[connection.user_id].discard(connection)
+        if not self.user_connections[connection.user_id]:
+            self.user_connections.pop(connection.user_id, None)
 
     async def send(self, connection: RoomConnection, payload: dict) -> None:
         async with connection.send_lock:
@@ -197,6 +215,13 @@ class KnockRoomManager:
                 current.discard(place_id)
                 self.update_places(connection, current)
                 continue
+            try:
+                await self.send(connection, payload)
+            except (RuntimeError, WebSocketDisconnect):
+                self.disconnect(connection)
+
+    async def send_to_user(self, user_id: int, payload: dict) -> None:
+        for connection in list(self.user_connections.get(user_id, set())):
             try:
                 await self.send(connection, payload)
             except (RuntimeError, WebSocketDisconnect):
@@ -221,15 +246,15 @@ async def send_error(
     )
 
 
-def save_message(
+def save_pending_message(
     *,
     user_id: int,
-    nickname: str,
     place: ActivePlace,
     text: str,
-) -> KnockMessageResponse | None:
+    client_id: str | None,
+) -> KnockMessage | None:
     cutoff = utc_now() - PRESENCE_TTL
-    with SessionLocal() as db:
+    with SessionLocal.begin() as db:
         try:
             content_places = resolve_content_place_scope(db, user_id, place.id)
         except HTTPException:
@@ -258,14 +283,122 @@ def save_message(
             user_id=user_id,
             text=text,
             author_rank=current_rank,
-            moderation_status=(
-                "post_pending" if current_rank == "BELONG" else "pending"
-            ),
+            moderation_status="pending",
+            client_id=client_id,
         )
         db.add(message)
         db.flush()
+        db.refresh(message)
+        db.expunge(message)
+        return message
 
-        if current_rank == "BELONG":
+
+def _deny_knock_message(message_id: int, code: str) -> None:
+    with SessionLocal.begin() as db:
+        message = db.get(KnockMessage, message_id)
+        if message is not None and message.moderation_status == "pending":
+            message.moderation_status = "denied"
+            message.deny_code = code
+            message.decided_at = utc_now()
+
+
+def _origin_from_candidates(
+    candidates: list[dict], target_place_id: int
+) -> int:
+    """Replicate resolve_content_place_scope using the places captured at
+    submission time, so a slow worker doesn't punish a user who has since
+    moved: the AI is still constrained to where they actually were."""
+    by_id = {candidate["place_id"]: candidate for candidate in candidates}
+    best_id = target_place_id
+    best_depth = 0
+    for candidate in candidates:
+        depth = 0
+        current = candidate
+        seen: set[int] = set()
+        reached = current["place_id"] == target_place_id
+        while not reached:
+            parent_id = current.get("parent_place_id")
+            if (
+                parent_id is None
+                or parent_id not in by_id
+                or current["place_id"] in seen
+            ):
+                break
+            seen.add(current["place_id"])
+            current = by_id[parent_id]
+            depth += 1
+            reached = current["place_id"] == target_place_id
+        if reached and depth > best_depth:
+            best_depth = depth
+            best_id = candidate["place_id"]
+    return best_id
+
+
+async def apply_knock_check(payload: dict, adapter: AIAdapter) -> None:
+    """Resolve routing and moderation for one queued KNOCK message."""
+    message_id = payload.get("message_id")
+    user_id = payload.get("user_id")
+    candidate_places_raw = payload.get("candidate_places")
+    if (
+        not isinstance(message_id, int)
+        or not isinstance(user_id, int)
+        or not isinstance(candidate_places_raw, list)
+    ):
+        return
+
+    with SessionLocal() as db:
+        message = db.get(KnockMessage, message_id)
+        if message is None or message.moderation_status != "pending":
+            return
+        text = message.text
+
+    try:
+        places = [
+            PlaceRouteOption(
+                place_id=option["place_id"],
+                name=option["name"],
+                parent_place_id=option.get("parent_place_id"),
+                scope_class=option.get("scope_class", "OTHER"),
+            )
+            for option in candidate_places_raw
+        ]
+        rank_by_place_id = {
+            option["place_id"]: option["rank"] for option in candidate_places_raw
+        }
+    except (KeyError, TypeError, ValueError):
+        _deny_knock_message(message_id, "routing_failed")
+        return
+
+    if not places:
+        _deny_knock_message(message_id, "routing_failed")
+        return
+    if len(places) == 1:
+        # Only one current scope: nothing to choose between, so skip the AI
+        # routing call and go straight to moderation.
+        target_place_id = places[0].place_id
+    else:
+        routing = await route_before_publication(adapter, text, places)
+        if routing is None:
+            _deny_knock_message(message_id, "routing_failed")
+            return
+        target_place_id = routing.place_id
+
+    author_rank = rank_by_place_id.get(target_place_id)
+    if author_rank is None:
+        _deny_knock_message(message_id, "routing_failed")
+        return
+    origin_place_id = _origin_from_candidates(candidate_places_raw, target_place_id)
+
+    with SessionLocal.begin() as db:
+        message = db.get(KnockMessage, message_id)
+        if message is None or message.moderation_status != "pending":
+            return
+        message.place_id = target_place_id
+        message.origin_place_id = origin_place_id
+        message.author_rank = author_rank
+        if author_rank == "BELONG":
+            message.moderation_status = "post_pending"
+            message.decided_at = utc_now()
             db.add(
                 AIJob(
                     job_type=TEXT_MODERATION_JOB,
@@ -279,53 +412,114 @@ def save_message(
                 )
             )
 
-        db.commit()
-        db.refresh(message)
-        return KnockMessageResponse(
-            id=message.id,
-            place_id=message.place_id,
-            place_name=place.name,
-            place_display_name=place.display_name,
-            origin_place_id=content_places.origin.id,
-            origin_place_name=content_places.origin.name,
-            origin_place_display_name=place_display_name(db, content_places.origin),
-            user_id=message.user_id,
-            nickname=nickname,
-            author_rank=message.author_rank,
-            moderation_status=message.moderation_status,
-            text=message.text,
-            created_at=message.created_at,
+    if author_rank == "BELONG":
+        return
+
+    moderation = await moderate_before_publication(adapter, text)
+    with SessionLocal.begin() as db:
+        message = db.get(KnockMessage, message_id)
+        if message is None or message.moderation_status != "pending":
+            return
+        message.decided_at = utc_now()
+        if moderation.approved:
+            message.moderation_status = "approved"
+        else:
+            message.moderation_status = "denied"
+            message.deny_code = "moderation_rejected"
+
+
+async def deliver_ready_messages() -> None:
+    """Broadcast resolved KNOCK messages and notify authors of denials."""
+    deliveries: list[tuple] = []
+    with SessionLocal.begin() as db:
+        rows = list(
+            db.scalars(
+                select(KnockMessage)
+                .where(
+                    KnockMessage.broadcast_at.is_(None),
+                    KnockMessage.moderation_status.in_(
+                        ("approved", "post_pending", "denied")
+                    ),
+                )
+                .order_by(KnockMessage.id)
+                .limit(BROADCAST_BATCH_LIMIT)
+            )
         )
+        for message in rows:
+            message.broadcast_at = utc_now()
+            if message.moderation_status == "denied":
+                deliveries.append(
+                    (
+                        "denied",
+                        message.id,
+                        message.user_id,
+                        message.client_id,
+                        message.deny_code,
+                    )
+                )
+                continue
+            place = db.get(Place, message.place_id)
+            origin = db.get(Place, message.origin_place_id)
+            author = db.get(User, message.user_id)
+            response = KnockMessageResponse(
+                id=message.id,
+                place_id=message.place_id,
+                place_name=place.name if place is not None else "Unknown place",
+                place_display_name=place_display_name(db, place),
+                origin_place_id=message.origin_place_id,
+                origin_place_name=(
+                    origin.name if origin is not None else "Unknown place"
+                ),
+                origin_place_display_name=place_display_name(db, origin),
+                user_id=message.user_id,
+                nickname=author.nickname if author is not None else "Unknown user",
+                author_rank=message.author_rank,
+                moderation_status=message.moderation_status,
+                text=message.text,
+                created_at=message.created_at,
+                decided_at=message.decided_at,
+            )
+            deliveries.append(("message", message.place_id, response, message.client_id))
+
+    for delivery in deliveries:
+        if delivery[0] == "denied":
+            _, message_id, user_id, client_id, deny_code = delivery
+            await room_manager.send_to_user(
+                user_id,
+                {
+                    "type": "error",
+                    "code": deny_code or "moderation_rejected",
+                    "detail": DENY_MESSAGES.get(
+                        deny_code, "The KNOCK could not be sent."
+                    ),
+                    "client_id": client_id,
+                    "message_id": message_id,
+                },
+            )
+        else:
+            _, place_id, response, client_id = delivery
+            await room_manager.broadcast(
+                place_id,
+                {
+                    "type": "message",
+                    "message": response.model_dump(mode="json"),
+                    "client_id": client_id,
+                },
+            )
 
 
-def approve_pending_message(message_id: int, user_id: int) -> bool:
-    with SessionLocal.begin() as db:
-        message = db.get(KnockMessage, message_id)
-        if (
-            message is None
-            or message.user_id != user_id
-            or message.moderation_status != "pending"
-        ):
-            return False
-        message.moderation_status = "approved"
-        return True
-
-
-def delete_pending_message(message_id: int, user_id: int) -> None:
-    with SessionLocal.begin() as db:
-        message = db.get(KnockMessage, message_id)
-        if (
-            message is not None
-            and message.user_id == user_id
-            and message.moderation_status == "pending"
-        ):
-            db.delete(message)
+async def run_knock_broadcaster() -> None:
+    while True:
+        try:
+            await deliver_ready_messages()
+        except Exception:
+            logger.exception("KNOCK broadcaster pass failed")
+        await asyncio.sleep(BROADCAST_POLL_SECONDS)
 
 
 async def publish_message(
     connection: RoomConnection,
     auth: AuthContext,
-    adapter: AIAdapter,
     text: str,
     client_id: str | None,
 ) -> None:
@@ -344,42 +538,13 @@ async def publish_message(
     )
     active_place_ids = {place.id for place in active_places}
 
-    routing = await route_before_publication(
-        adapter,
-        text,
-        [
-            PlaceRouteOption(
-                place_id=place.id,
-                name=place.name,
-                parent_place_id=(
-                    place.parent_place_id
-                    if place.parent_place_id in active_place_ids
-                    else None
-                ),
-                scope_class=place.scope_class,
-            )
-            for place in active_places
-        ],
-    )
-    if routing is None:
-        await send_error(
-            connection,
-            "routing_failed",
-            "The KNOCK could not be routed to a current place. Try again.",
-            client_id,
-        )
-        return
-    target = next(
-        place for place in active_places if place.id == routing.place_id
-    )
-
-    saved = save_message(
+    pending = save_pending_message(
         user_id=auth.user.id,
-        nickname=auth.user.nickname,
-        place=target,
+        place=active_places[-1],
         text=text,
+        client_id=client_id,
     )
-    if saved is None:
+    if pending is None:
         await send_error(
             connection,
             "presence_required",
@@ -388,46 +553,36 @@ async def publish_message(
         )
         return
 
-    if target.rank == "VISITOR":
-        try:
-            moderation = await moderate_before_publication(adapter, text)
-        except Exception:
-            delete_pending_message(saved.id, auth.user.id)
-            raise
-        if not moderation.approved:
-            delete_pending_message(saved.id, auth.user.id)
-            await send_error(
-                connection,
-                "moderation_rejected",
-                moderation.reason,
-                client_id,
-            )
-            return
-        if not approve_pending_message(saved.id, auth.user.id):
-            await send_error(
-                connection,
-                "moderation_failed",
-                "The KNOCK could not finish its safety check. Try again.",
-                client_id,
-            )
-            return
-        saved = saved.model_copy(update={"moderation_status": "approved"})
-
-    await room_manager.broadcast(
-        target.id,
+    candidate_places = [
         {
-            "type": "message",
-            "message": saved.model_dump(mode="json"),
-            "client_id": client_id,
-        },
+            "place_id": place.id,
+            "name": place.name,
+            "parent_place_id": (
+                place.parent_place_id
+                if place.parent_place_id in active_place_ids
+                else None
+            ),
+            "scope_class": place.scope_class,
+            "rank": place.rank,
+        }
+        for place in active_places
+    ]
+    with SessionLocal.begin() as db:
+        queue_knock_check(
+            db,
+            message_id=pending.id,
+            user_id=auth.user.id,
+            candidate_places=candidate_places,
+        )
+
+    await room_manager.send(
+        connection,
+        {"type": "queued", "client_id": client_id, "message_id": pending.id},
     )
 
 
 @knock_websocket_router.websocket("/ws/knock")
-async def knock_websocket(
-    websocket: WebSocket,
-    adapter: AIAdapter = Depends(get_ai_adapter),
-) -> None:
+async def knock_websocket(websocket: WebSocket) -> None:
     token = websocket.query_params.get("token")
     if token is None:
         await websocket.close(code=4401)
@@ -492,7 +647,6 @@ async def knock_websocket(
             await publish_message(
                 connection,
                 auth,
-                adapter,
                 payload.text,
                 payload.client_id,
             )
@@ -515,6 +669,7 @@ def knock_history(
             detail="Current presence is required",
         )
 
+    denial_cutoff = utc_now() - timedelta(seconds=DENIAL_VISIBLE_SECONDS)
     with SessionLocal() as db:
         origin_place = aliased(Place)
         rows = db.execute(
@@ -531,6 +686,11 @@ def knock_history(
                     and_(
                         KnockMessage.moderation_status == "pending",
                         KnockMessage.user_id == auth.user.id,
+                    ),
+                    and_(
+                        KnockMessage.moderation_status == "denied",
+                        KnockMessage.user_id == auth.user.id,
+                        KnockMessage.decided_at >= denial_cutoff,
                     ),
                 ),
             )
@@ -553,6 +713,7 @@ def knock_history(
                 moderation_status=message.moderation_status,
                 text=message.text,
                 created_at=message.created_at,
+                decided_at=message.decided_at,
             )
             for message, place, origin, nickname in reversed(rows)
         ]

@@ -1,10 +1,33 @@
+from dataclasses import replace
+
 import pytest
 
 from app.config import settings
-from app.osm import OSMPlaceResolver, PlaceResolutionError, ResolvedPlace
+from app.osm import OSMPlaceResolver, PlaceResolutionError, ResolvedPlace, localized_name
 
 
 pytestmark = pytest.mark.unit
+
+
+def test_localized_name_prefers_configured_language_tag() -> None:
+    assert (
+        localized_name({"name": "בנין רבין", "name:en": "Rabin Building"})
+        == "Rabin Building"
+    )
+    assert localized_name({"name": "בנין רבין"}) == "בנין רבין"
+    assert localized_name({"name": "  ", "name:en": "  "}) is None
+
+
+def test_localized_name_falls_back_to_default_language_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.osm.settings", replace(settings, place_name_language="")
+    )
+    assert (
+        localized_name({"name": "בנין רבין", "name:en": "Rabin Building"})
+        == "בנין רבין"
+    )
 
 
 def test_osm_locality_extraction_prefers_address_then_city_boundary() -> None:
@@ -37,6 +60,62 @@ def test_osm_locality_extraction_prefers_address_then_city_boundary() -> None:
             },
         ]
     ) == "Haifa"
+    assert OSMPlaceResolver._locality_from_elements(
+        [
+            {
+                "tags": {
+                    "name": "חיפה",
+                    "name:en": "Haifa",
+                    "boundary": "administrative",
+                    "admin_level": "8",
+                }
+            },
+        ]
+    ) == "Haifa"
+
+
+def test_osm_resolver_prefers_name_en_over_default_language_name() -> None:
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {
+                "elements": [
+                    {
+                        "type": "way",
+                        "id": 456,
+                        "tags": {
+                            "name": "בנין רבין",
+                            "name:en": "Rabin Building",
+                            "building": "yes",
+                        },
+                        "bounds": {
+                            "minlat": 31.99,
+                            "minlon": 34.99,
+                            "maxlat": 32.01,
+                            "maxlon": 35.01,
+                        },
+                    },
+                ]
+            }
+
+    class FakeClient:
+        def __enter__(self) -> "FakeClient":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+        def post(self, *args: object, **kwargs: object) -> FakeResponse:
+            return FakeResponse()
+
+    resolver = OSMPlaceResolver()
+    resolver._client = lambda: FakeClient()  # type: ignore[method-assign]
+
+    resolved = resolver.resolve(32.0, 35.0)
+
+    assert [place.name for place in resolved] == ["Rabin Building"]
 
 
 def test_osm_scope_classification_preserves_useful_unknown_features() -> None:

@@ -10,11 +10,15 @@ from app.models import AIJob, JobQueueState, KnockMessage
 
 TEXT_MODERATION_JOB = "text_moderation"
 EXPLORE_CLUSTER_JOB = "explore_cluster"
+KNOCK_CHECK_JOB = "knock_check"
+FORUM_POST_CHECK_JOB = "forum_post_check"
+FORUM_COMMENT_CHECK_JOB = "forum_comment_check"
 PENDING = "pending"
 RUNNING = "running"
 COMPLETED = "completed"
 FAILED = "failed"
 QUEUE_STATE_NAME = "background"
+DENIAL_VISIBLE_SECONDS = 15 * 60
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,77 @@ def queue_explore_cluster_check(
     )
 
 
+def queue_knock_check(
+    db: Session,
+    *,
+    message_id: int,
+    user_id: int,
+    candidate_places: list[dict],
+) -> None:
+    db.add(
+        AIJob(
+            job_type=KNOCK_CHECK_JOB,
+            status=PENDING,
+            payload={
+                "message_id": message_id,
+                "user_id": user_id,
+                "candidate_places": candidate_places,
+            },
+            attempts=0,
+        )
+    )
+
+
+def queue_forum_post_check(
+    db: Session,
+    *,
+    post_id: int,
+    user_id: int,
+    text: str,
+    media_attachment_id: int | None = None,
+) -> None:
+    payload: dict[str, object] = {
+        "post_id": post_id,
+        "user_id": user_id,
+        "text": validate_model_input(text, check_prompt_injection=False),
+    }
+    if media_attachment_id is not None:
+        payload["media_attachment_id"] = media_attachment_id
+    db.add(
+        AIJob(
+            job_type=FORUM_POST_CHECK_JOB,
+            status=PENDING,
+            payload=payload,
+            attempts=0,
+        )
+    )
+
+
+def queue_forum_comment_check(
+    db: Session,
+    *,
+    comment_id: int,
+    user_id: int,
+    text: str,
+    media_attachment_id: int | None = None,
+) -> None:
+    payload: dict[str, object] = {
+        "comment_id": comment_id,
+        "user_id": user_id,
+        "text": validate_model_input(text, check_prompt_injection=False),
+    }
+    if media_attachment_id is not None:
+        payload["media_attachment_id"] = media_attachment_id
+    db.add(
+        AIJob(
+            job_type=FORUM_COMMENT_CHECK_JOB,
+            status=PENDING,
+            payload=payload,
+            attempts=0,
+        )
+    )
+
+
 def claim_next_job() -> ClaimedAIJob | None:
     with SessionLocal.begin() as db:
         pending_jobs = list(
@@ -90,21 +165,27 @@ def claim_next_job() -> ClaimedAIJob | None:
         if state is None:
             state = JobQueueState(
                 queue_name=QUEUE_STATE_NAME,
-                last_user_id=None,
+                last_served={},
+                serve_counter=0,
                 updated_at=utc_now(),
             )
             db.add(state)
 
-        user_ids = sorted(first_job_by_user)
-        last_user_id = state.last_user_id
-        next_user_id = user_ids[0]
-        if last_user_id is not None:
-            next_user_id = next(
-                (user_id for user_id in user_ids if user_id > last_user_id),
-                user_ids[0],
-            )
+        last_served = state.last_served or {}
+        # Round-robin by wait time: the user who was served longest ago goes
+        # next, rather than cycling through user ids in numeric order. Users
+        # who have never been served rank first; ties among them are broken
+        # by whose oldest pending job was enqueued first.
+        next_user_id = min(
+            first_job_by_user,
+            key=lambda user_id: (
+                last_served.get(str(user_id), -1),
+                first_job_by_user[user_id].id,
+            ),
+        )
         job = first_job_by_user[next_user_id]
-        state.last_user_id = next_user_id
+        state.serve_counter += 1
+        state.last_served = {**last_served, str(next_user_id): state.serve_counter}
         state.updated_at = utc_now()
 
         job.status = RUNNING

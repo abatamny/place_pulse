@@ -149,6 +149,12 @@ class KnockMessage(Base):
     text: Mapped[str] = mapped_column(String(500))
     author_rank: Mapped[str] = mapped_column(String(10))
     moderation_status: Mapped[str] = mapped_column(String(20))
+    client_id: Mapped[str | None] = mapped_column(String(80))
+    deny_code: Mapped[str | None] = mapped_column(String(30))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    broadcast_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -265,6 +271,7 @@ class ForumPost(Base):
     body: Mapped[str] = mapped_column(Text)
     is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
     moderation_status: Mapped[str] = mapped_column(String(20), index=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -282,6 +289,7 @@ class ForumComment(Base):
     )
     text: Mapped[str] = mapped_column(String(1000))
     moderation_status: Mapped[str] = mapped_column(String(20), index=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -295,6 +303,24 @@ class ForumVote(Base):
 
     post_id: Mapped[int] = mapped_column(
         ForeignKey("forum_posts.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    value: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ForumCommentVote(Base):
+    __tablename__ = "forum_comment_votes"
+    __table_args__ = (
+        CheckConstraint("value IN (-1, 1)", name="ck_forum_comment_vote_value"),
+    )
+
+    comment_id: Mapped[int] = mapped_column(
+        ForeignKey("forum_comments.id", ondelete="CASCADE"), primary_key=True
     )
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
@@ -384,5 +410,6 @@ class JobQueueState(Base):
     __tablename__ = "job_queue_state"
 
     queue_name: Mapped[str] = mapped_column(String(40), primary_key=True)
-    last_user_id: Mapped[int | None] = mapped_column(Integer)
+    last_served: Mapped[dict] = mapped_column(JSON, default=dict)
+    serve_counter: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

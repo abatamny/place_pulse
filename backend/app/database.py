@@ -66,3 +66,63 @@ def create_schema() -> None:
                     f"ON {table_name} (origin_place_id)"
                 )
             )
+        connection.execute(
+            text(
+                "ALTER TABLE knock_messages "
+                "ADD COLUMN IF NOT EXISTS client_id VARCHAR(80)"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE knock_messages "
+                "ADD COLUMN IF NOT EXISTS deny_code VARCHAR(30)"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE knock_messages "
+                "ADD COLUMN IF NOT EXISTS decided_at TIMESTAMPTZ"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE knock_messages "
+                "ADD COLUMN IF NOT EXISTS broadcast_at TIMESTAMPTZ"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_knock_messages_broadcast_at "
+                "ON knock_messages (broadcast_at)"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE forum_posts "
+                "ADD COLUMN IF NOT EXISTS decided_at TIMESTAMPTZ"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE forum_comments "
+                "ADD COLUMN IF NOT EXISTS decided_at TIMESTAMPTZ"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE job_queue_state "
+                "ADD COLUMN IF NOT EXISTS last_served JSON NOT NULL DEFAULT '{}'"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE job_queue_state "
+                "ADD COLUMN IF NOT EXISTS serve_counter INTEGER NOT NULL DEFAULT 0"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE job_queue_state "
+                "DROP COLUMN IF EXISTS last_user_id"
+            )
+        )

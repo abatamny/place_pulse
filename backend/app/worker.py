@@ -13,13 +13,18 @@ from app.ai import (
 from app.config import settings
 from app.database import create_schema
 from app.explore import create_memory_from_activity
+from app.forum import apply_forum_comment_check, apply_forum_post_check
 from app.jobs import (
     EXPLORE_CLUSTER_JOB,
+    FORUM_COMMENT_CHECK_JOB,
+    FORUM_POST_CHECK_JOB,
+    KNOCK_CHECK_JOB,
     TEXT_MODERATION_JOB,
     claim_next_job,
     complete_job,
     fail_job,
 )
+from app.knock import apply_knock_check
 
 POLL_INTERVAL_SECONDS = 2
 logger = logging.getLogger("placepulse.worker")
@@ -47,6 +52,24 @@ async def process_next_job(
                     "memory_id": memory_id,
                 },
             )
+            return True
+
+        if job.job_type == KNOCK_CHECK_JOB:
+            active_adapter = adapter or create_ai_adapter()
+            await apply_knock_check(job.payload, active_adapter)
+            complete_job(job.id, {"handled": True})
+            return True
+
+        if job.job_type == FORUM_POST_CHECK_JOB:
+            active_adapter = adapter or create_ai_adapter()
+            await apply_forum_post_check(job.payload, active_adapter)
+            complete_job(job.id, {"handled": True})
+            return True
+
+        if job.job_type == FORUM_COMMENT_CHECK_JOB:
+            active_adapter = adapter or create_ai_adapter()
+            await apply_forum_comment_check(job.payload, active_adapter)
+            complete_job(job.id, {"handled": True})
             return True
 
         if job.job_type != TEXT_MODERATION_JOB:

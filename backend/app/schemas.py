@@ -149,9 +149,12 @@ class KnockMessageResponse(BaseModel):
     user_id: int
     nickname: str
     author_rank: str
-    moderation_status: Literal["pending", "approved", "post_pending", "flagged"]
+    moderation_status: Literal[
+        "pending", "approved", "post_pending", "flagged", "denied"
+    ]
     text: str
     created_at: datetime
+    decided_at: datetime | None = None
 
 
 class KnockHistoryResponse(BaseModel):
@@ -160,7 +163,9 @@ class KnockHistoryResponse(BaseModel):
 
 class KnockModerationStatus(BaseModel):
     id: int
-    moderation_status: Literal["pending", "approved", "post_pending", "flagged"]
+    moderation_status: Literal[
+        "pending", "approved", "post_pending", "flagged", "denied"
+    ]
 
 
 class KnockModerationStatusResponse(BaseModel):
@@ -281,9 +286,14 @@ class ForumCommentResponse(BaseModel):
     user_id: int
     nickname: str
     text: str
-    moderation_status: Literal["pending", "approved"]
+    moderation_status: Literal["pending", "approved", "denied"]
     created_at: datetime
+    decided_at: datetime | None = None
     media: MediaAttachmentResponse | None = None
+    upvotes: int = 0
+    downvotes: int = 0
+    score: int = 0
+    my_vote: int = 0
 
 
 class ForumPostResponse(BaseModel):
@@ -300,18 +310,30 @@ class ForumPostResponse(BaseModel):
     is_mine: bool
     title: str
     body: str
-    moderation_status: Literal["pending", "approved"]
+    moderation_status: Literal["pending", "approved", "denied"]
     upvotes: int
     downvotes: int
     score: int
     my_vote: int
     created_at: datetime
+    decided_at: datetime | None = None
     media: MediaAttachmentResponse | None = None
     comments: list[ForumCommentResponse]
 
 
 class ForumFeedResponse(BaseModel):
     posts: list[ForumPostResponse]
+
+
+class ForumStatusItem(BaseModel):
+    id: int
+    moderation_status: Literal["pending", "approved", "denied"]
+    decided_at: datetime | None = None
+
+
+class ForumStatusResponse(BaseModel):
+    posts: list[ForumStatusItem]
+    comments: list[ForumStatusItem]
 
 
 class ForumVoteResponse(BaseModel):

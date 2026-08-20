@@ -71,9 +71,10 @@ type KnockMessage = {
   user_id: number;
   nickname: string;
   author_rank: "VISITOR" | "BELONG";
-  moderation_status: "pending" | "approved" | "post_pending" | "flagged";
+  moderation_status: "pending" | "approved" | "post_pending" | "flagged" | "denied";
   text: string;
   created_at: string;
+  decided_at: string | null;
 };
 
 type KnockHistoryResponse = {
@@ -164,9 +165,14 @@ type ForumComment = {
   user_id: number;
   nickname: string;
   text: string;
-  moderation_status: "pending" | "approved";
+  moderation_status: "pending" | "approved" | "denied";
   created_at: string;
+  decided_at: string | null;
   media: MediaAttachment | null;
+  upvotes: number;
+  downvotes: number;
+  score: number;
+  my_vote: number;
 };
 
 type ForumPost = {
@@ -183,18 +189,37 @@ type ForumPost = {
   is_mine: boolean;
   title: string;
   body: string;
-  moderation_status: "pending" | "approved";
+  moderation_status: "pending" | "approved" | "denied";
   upvotes: number;
   downvotes: number;
   score: number;
   my_vote: number;
   created_at: string;
+  decided_at: string | null;
   media: MediaAttachment | null;
   comments: ForumComment[];
 };
 
 type ForumFeedResponse = {
   posts: ForumPost[];
+};
+
+type ForumVoteResponse = {
+  upvotes: number;
+  downvotes: number;
+  score: number;
+  my_vote: number;
+};
+
+type ForumStatusItem = {
+  id: number;
+  moderation_status: "pending" | "approved" | "denied";
+  decided_at: string | null;
+};
+
+type ForumStatusResponse = {
+  posts: ForumStatusItem[];
+  comments: ForumStatusItem[];
 };
 
 type PendingForumPost = ForumPost & {
@@ -529,6 +554,24 @@ function mergeMessages(messages: KnockMessage[]): KnockMessage[] {
         new Date(right.created_at).getTime(),
     )
     .slice(-100);
+}
+
+const DENIAL_VISIBLE_MS = 15 * 60 * 1000;
+
+function isDenialVisible(decidedAt: string | null, now: number): boolean {
+  if (!decidedAt) {
+    return true;
+  }
+  return now - new Date(decidedAt).getTime() < DENIAL_VISIBLE_MS;
+}
+
+function useNowTick(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(timer);
+  }, [intervalMs]);
+  return now;
 }
 
 function scrollFeedToEnd(element: HTMLElement | null) {
@@ -882,6 +925,12 @@ function KnockPanel({
     .map((message) => message.id)
     .sort((left, right) => left - right)
     .join(",");
+  const nowTick = useNowTick(15_000);
+  const visibleMessages = messages.filter(
+    (message) =>
+      message.moderation_status !== "denied" ||
+      isDenialVisible(message.decided_at, nowTick),
+  );
 
   useEffect(() => {
     scrollFeedToEnd(feedRef.current);
@@ -967,7 +1016,8 @@ function KnockPanel({
           const clientId = typeof payload.client_id === "string"
             ? payload.client_id
             : null;
-          if (payload.code === "moderation_rejected" && clientId) {
+          const deniedCodes = ["moderation_rejected", "routing_failed"];
+          if (deniedCodes.includes(payload.code) && clientId) {
             setPendingMessages((current) => current.map((pending) =>
               pending.client_id === clientId
                 ? { ...pending, status: "rejected" }
@@ -1114,9 +1164,9 @@ function KnockPanel({
     setDraft("");
   }
 
-  const pendingStatus = "Routing";
+  const pendingStatus = "Checking";
   const pendingExplanation =
-    "Choosing the right nearby scope and applying required checks. Visible only to you.";
+    "Checking before publication · visible only to you.";
 
   if (places.length === 0) {
     return (
@@ -1141,16 +1191,16 @@ function KnockPanel({
       </header>
 
       <div className="knock-feed" aria-live="polite" ref={feedRef}>
-        {messages.length === 0 && pendingMessages.length === 0 ? (
+        {visibleMessages.length === 0 && pendingMessages.length === 0 ? (
           <div className="feed-empty">
             <p>No KNOCKS yet.</p>
             <span>Start the conversation at this place.</span>
           </div>
         ) : (
           <>
-            {messages.map((message) => (
+            {visibleMessages.map((message) => (
               <article
-                className={`knock-message ${message.user_id === user.id ? "knock-message--own" : ""} ${["pending", "post_pending"].includes(message.moderation_status) ? "moderation-pending" : ""} ${message.moderation_status === "flagged" ? "moderation-rejected" : ""}`}
+                className={`knock-message ${message.user_id === user.id ? "knock-message--own" : ""} ${message.moderation_status === "pending" ? "moderation-pending" : ""} ${["flagged", "denied"].includes(message.moderation_status) ? "moderation-rejected" : ""}`}
                 key={message.id}
               >
                 <div className="message-meta">
@@ -1166,8 +1216,14 @@ function KnockPanel({
                   {message.moderation_status === "flagged" && (
                     <span className="rejected-status">Removed</span>
                   )}
-                  {["pending", "post_pending"].includes(message.moderation_status) && (
+                  {message.moderation_status === "denied" && (
+                    <span className="rejected-status">Not sent</span>
+                  )}
+                  {message.moderation_status === "pending" && (
                     <span className="pending-status">Checking</span>
+                  )}
+                  {message.moderation_status === "post_pending" && (
+                    <span className="background-check-status">Background check</span>
                   )}
                   <time dateTime={message.created_at}>
                     {new Date(message.created_at).toLocaleTimeString([], {
@@ -1181,11 +1237,14 @@ function KnockPanel({
                     ? "This message was removed because it did not pass the background safety check."
                     : message.text}
                 </p>
-                {["pending", "post_pending"].includes(message.moderation_status) && (
+                {message.moderation_status === "denied" && (
+                  <small className="forum-comment-rejected-note">
+                    This message was not sent because it did not pass the safety check. Visible only to you for 15 minutes.
+                  </small>
+                )}
+                {message.moderation_status === "pending" && (
                   <small className="background-check-note">
-                    {message.moderation_status === "pending"
-                      ? "Checking before publication · visible only to you"
-                      : "Being checked in the background"}
+                    Checking before publication · visible only to you
                   </small>
                 )}
               </article>
@@ -2092,17 +2151,20 @@ function ExplorePanel({
 function ForumPostCard({
   post,
   token,
-  onChanged,
+  onVoted,
+  onCommentCreated,
+  onCommentVoted,
 }: {
   post: ForumPost;
   token: string;
-  onChanged: () => void;
+  onVoted: (vote: ForumVoteResponse) => void;
+  onCommentCreated: (comment: ForumComment) => void;
+  onCommentVoted: (commentId: number, vote: ForumVoteResponse) => void;
 }) {
   const pendingCommentIdRef = useRef(-1);
   const [comment, setComment] = useState("");
   const [commentFile, setCommentFile] = useState<File | null>(null);
   const [pendingComments, setPendingComments] = useState<PendingForumComment[]>([]);
-  const [approvedComments, setApprovedComments] = useState<ForumComment[]>([]);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState("");
@@ -2111,20 +2173,42 @@ function ForumPostCard({
     setBusy(true);
     setError("");
     try {
-      if (post.my_vote === value) {
-        await apiRequest(`/api/forum/posts/${post.id}/vote`, { method: "DELETE" }, token);
-      } else {
-        await apiRequest(
-          `/api/forum/posts/${post.id}/vote`,
-          { method: "PUT", body: JSON.stringify({ value }) },
-          token,
-        );
-      }
-      onChanged();
+      const response = post.my_vote === value
+        ? await apiRequest<ForumVoteResponse>(
+            `/api/forum/posts/${post.id}/vote`,
+            { method: "DELETE" },
+            token,
+          )
+        : await apiRequest<ForumVoteResponse>(
+            `/api/forum/posts/${post.id}/vote`,
+            { method: "PUT", body: JSON.stringify({ value }) },
+            token,
+          );
+      onVoted(response);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not update vote");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function voteOnComment(commentId: number, value: 1 | -1, currentMyVote: number) {
+    setError("");
+    try {
+      const response = currentMyVote === value
+        ? await apiRequest<ForumVoteResponse>(
+            `/api/forum/comments/${commentId}/vote`,
+            { method: "DELETE" },
+            token,
+          )
+        : await apiRequest<ForumVoteResponse>(
+            `/api/forum/comments/${commentId}/vote`,
+            { method: "PUT", body: JSON.stringify({ value }) },
+            token,
+          );
+      onCommentVoted(commentId, response);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not update comment vote");
     }
   }
 
@@ -2168,8 +2252,7 @@ function ForumPostCard({
         token,
       );
       setPendingComments((current) => current.filter((item) => item.id !== pendingId));
-      setApprovedComments((current) => [...current, published]);
-      onChanged();
+      onCommentCreated(published);
     } catch (caught) {
       setPendingComments((current) =>
         current.map((item) =>
@@ -2182,11 +2265,10 @@ function ForumPostCard({
     }
   }
 
-  const serverCommentIds = new Set(post.comments.map((item) => item.id));
-  const visibleComments = [
-    ...post.comments.filter((item) => item.moderation_status === "approved"),
-    ...approvedComments.filter((item) => !serverCommentIds.has(item.id)),
-  ];
+  const nowTick = useNowTick(15_000);
+  const visibleComments = post.comments.filter(
+    (item) => item.moderation_status === "approved",
+  );
   const visiblePendingComments = [
     ...post.comments
       .filter((item) => item.moderation_status === "pending")
@@ -2196,6 +2278,19 @@ function ForumPostCard({
         created_at: item.created_at,
         media_name: item.media?.original_filename ?? null,
         status: "checking" as const,
+      })),
+    ...post.comments
+      .filter(
+        (item) =>
+          item.moderation_status === "denied" &&
+          isDenialVisible(item.decided_at, nowTick),
+      )
+      .map((item) => ({
+        id: item.id,
+        text: item.text,
+        created_at: item.created_at,
+        media_name: item.media?.original_filename ?? null,
+        status: "rejected" as const,
       })),
     ...pendingComments,
   ];
@@ -2286,6 +2381,23 @@ function ForumPostCard({
                   {item.media && (
                     <AttachmentMedia attachment={item.media} compact token={token} />
                   )}
+                  <div className="forum-comment-votes" aria-label={`Score ${item.score}`}>
+                    <button
+                      className={item.my_vote === 1 ? "active" : ""}
+                      onClick={() => void voteOnComment(item.id, 1, item.my_vote)}
+                      type="button"
+                    >
+                      ▲ {item.upvotes}
+                    </button>
+                    <span>{item.score}</span>
+                    <button
+                      className={item.my_vote === -1 ? "active" : ""}
+                      onClick={() => void voteOnComment(item.id, -1, item.my_vote)}
+                      type="button"
+                    >
+                      ▼ {item.downvotes}
+                    </button>
+                  </div>
                   <time dateTime={item.created_at}>
                     {new Date(item.created_at).toLocaleString()}
                   </time>
@@ -2356,21 +2468,116 @@ function ForumPanel({
   const [mode, setMode] = useState<"place" | "mine">("place");
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [personal, setPersonal] = useState<PersonalForumResponse | null>(null);
-  const [refreshNumber, setRefreshNumber] = useState(0);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [pendingPosts, setPendingPosts] = useState<PendingForumPost[]>([]);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const persistedPendingKey = posts
-    .flatMap((post) => [
-      ...(post.moderation_status === "pending" ? [`post-${post.id}`] : []),
-      ...post.comments
-        .filter((comment) => comment.moderation_status === "pending")
-        .map((comment) => `comment-${comment.id}`),
-    ])
-    .join(",");
+  const postsRef = useRef(posts);
+  postsRef.current = posts;
+
+  function patchPost(postId: number, patch: Partial<ForumPost>) {
+    setPosts((current) =>
+      current.map((post) => (post.id === postId ? { ...post, ...patch } : post)),
+    );
+  }
+
+  function addComment(postId: number, comment: ForumComment) {
+    setPosts((current) =>
+      current.map((post) =>
+        post.id !== postId
+          ? post
+          : {
+              ...post,
+              comments: [
+                ...post.comments.filter((item) => item.id !== comment.id),
+                comment,
+              ],
+            },
+      ),
+    );
+  }
+
+  function patchComment(postId: number, commentId: number, patch: Partial<ForumComment>) {
+    setPosts((current) =>
+      current.map((post) =>
+        post.id !== postId
+          ? post
+          : {
+              ...post,
+              comments: post.comments.map((item) =>
+                item.id === commentId ? { ...item, ...patch } : item,
+              ),
+            },
+      ),
+    );
+  }
+
+  // Polls just the moderation status of currently-pending posts/comments and
+  // patches them in place, instead of refetching the whole board.
+  useEffect(() => {
+    let active = true;
+    async function poll() {
+      const currentPosts = postsRef.current;
+      const pendingPostIds = currentPosts
+        .filter((post) => post.moderation_status === "pending")
+        .map((post) => post.id);
+      const pendingCommentIds = currentPosts.flatMap((post) =>
+        post.comments
+          .filter((comment) => comment.moderation_status === "pending")
+          .map((comment) => comment.id),
+      );
+      if (pendingPostIds.length === 0 && pendingCommentIds.length === 0) {
+        return;
+      }
+      const params = new URLSearchParams();
+      pendingPostIds.forEach((id) => params.append("post_ids", String(id)));
+      pendingCommentIds.forEach((id) => params.append("comment_ids", String(id)));
+      try {
+        const response = await apiRequest<ForumStatusResponse>(
+          `/api/forum/status?${params.toString()}`,
+          {},
+          token,
+        );
+        if (!active) {
+          return;
+        }
+        setPosts((current) =>
+          current.map((post) => {
+            const postUpdate = response.posts.find((item) => item.id === post.id);
+            const comments = post.comments.map((comment) => {
+              const commentUpdate = response.comments.find(
+                (item) => item.id === comment.id,
+              );
+              return commentUpdate
+                ? {
+                    ...comment,
+                    moderation_status: commentUpdate.moderation_status,
+                    decided_at: commentUpdate.decided_at,
+                  }
+                : comment;
+            });
+            return postUpdate
+              ? {
+                  ...post,
+                  moderation_status: postUpdate.moderation_status,
+                  decided_at: postUpdate.decided_at,
+                  comments,
+                }
+              : { ...post, comments };
+          }),
+        );
+      } catch {
+        // Keep the current pending state and try again on the next tick.
+      }
+    }
+    const timer = window.setInterval(() => void poll(), 2_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [token]);
 
   useEffect(() => {
     let active = true;
@@ -2420,17 +2627,7 @@ function ForumPanel({
     return () => {
       active = false;
     };
-  }, [mode, activeScope?.id, refreshNumber, token]);
-
-  useEffect(() => {
-    if (!persistedPendingKey) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setRefreshNumber((value) => value + 1);
-    }, 2_000);
-    return () => window.clearTimeout(timer);
-  }, [persistedPendingKey, refreshNumber]);
+  }, [mode, activeScope?.id, token]);
 
   async function submitPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2468,6 +2665,7 @@ function ForumPanel({
       score: 0,
       my_vote: 0,
       created_at: new Date().toISOString(),
+      decided_at: null,
       media: null,
       comments: [],
       pending: true,
@@ -2509,7 +2707,6 @@ function ForumPanel({
       setPendingPosts((current) => current.filter((post) => post.id !== pendingId));
       setPosts((current) => [published, ...current.filter((post) => post.id !== published.id)]);
       setNotice(`Forum post shared with ${published.place_display_name}.`);
-      setRefreshNumber((value) => value + 1);
     } catch (caught) {
       setPendingPosts((current) => current.filter((post) => post.id !== pendingId));
       setError(caught instanceof Error ? caught.message : "Could not publish post");
@@ -2519,10 +2716,16 @@ function ForumPanel({
     }
   }
 
+  const nowTick = useNowTick(15_000);
   const visiblePendingPosts = [
     ...pendingPosts,
     ...posts.filter((post) => post.moderation_status === "pending"),
   ];
+  const visibleDeniedPosts = posts.filter(
+    (post) =>
+      post.moderation_status === "denied" &&
+      isDenialVisible(post.decided_at, nowTick),
+  );
   const visibleApprovedPosts = posts.filter(
     (post) => post.moderation_status === "approved",
   );
@@ -2620,6 +2823,7 @@ function ForumPanel({
         </section>
       )}
 
+      <div className="forum-scroll-view">
       {mode === "place" && !activeScope && (
         <div className="forum-location-empty">
           <strong>Share your location to open a place forum.</strong>
@@ -2672,16 +2876,51 @@ function ForumPanel({
                 </div>
               </article>
             ))}
+            {visibleDeniedPosts.map((post) => (
+              <article className="forum-post-summary moderation-rejected" key={post.id}>
+                <div className="forum-summary-button forum-summary-button--pending">
+                  <span className="forum-summary-main">
+                    <span className="forum-summary-meta">
+                      <strong>{post.nickname} · You</strong>
+                      <span>{post.place_display_name}</span>
+                    </span>
+                    <strong className="forum-summary-title">{post.title}</strong>
+                    <span className="forum-summary-excerpt">{post.body}</span>
+                  </span>
+                  <span className="forum-summary-side">
+                    <span className="rejected-status">Not published</span>
+                    <span>This post did not pass the safety check. Visible only to you for 15 minutes.</span>
+                  </span>
+                </div>
+              </article>
+            ))}
             {visibleApprovedPosts.map((post) => (
               <ForumPostCard
                 key={post.id}
-                onChanged={() => setRefreshNumber((value) => value + 1)}
+                onCommentCreated={(comment) => addComment(post.id, comment)}
+                onCommentVoted={(commentId, vote) =>
+                  patchComment(post.id, commentId, {
+                    upvotes: vote.upvotes,
+                    downvotes: vote.downvotes,
+                    score: vote.score,
+                    my_vote: vote.my_vote,
+                  })
+                }
+                onVoted={(vote) =>
+                  patchPost(post.id, {
+                    upvotes: vote.upvotes,
+                    downvotes: vote.downvotes,
+                    score: vote.score,
+                    my_vote: vote.my_vote,
+                  })
+                }
                 post={post}
                 token={token}
               />
             ))}
           </>
         )}
+      </div>
       </div>
     </section>
   );
