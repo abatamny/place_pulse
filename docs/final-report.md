@@ -4,67 +4,54 @@
 
 - Repository: <https://github.com/abatamny/place_pulse>
 - Demonstration video: add the submitted video link here after recording
-- Recording checklist: [demo-script.md](demo-script.md)
 
 ## Project summary
 
-PlacePulse is a mobile-friendly location-based community application. A verified user shares browser coordinates, the backend resolves nearby physical places through a local OpenStreetMap Overpass instance, and the user can interact with content scoped to those places. The implementation follows the course architecture: React and Nginx, one FastAPI backend, one background worker, internal local-AI and Overpass services, and PostgreSQL/PostGIS, all run through Docker Compose.
+PlacePulse is a mobile-friendly, location-based community application. A verified user shares browser coordinates, the backend resolves nearby physical places through a local OpenStreetMap Overpass instance, and the user interacts with content scoped to those places: live KNOCK messages, temporary DIG media, permanent Explore memories, place forums, and direct messages, all backed by AI moderation. The implementation follows the course architecture: React + Nginx, one FastAPI backend, one background worker, internal local-AI and Overpass services, and PostgreSQL/PostGIS, all run through Docker Compose. Only Nginx is exposed to clients; every other service stays on the internal Compose network.
 
-## Implemented features
+## Features, and how each was tested
 
-- Phone-style registration with optional Twilio SMS delivery and an automatic demo-code fallback when no provider is configured, Argon2 password hashing, revocable hashed sessions, login, and logout.
-- OpenStreetMap place/locality resolution, consistent `Primary · Parent, City` labels, stored PostGIS boundaries, expiring presence, completed visits, and VISITOR/BELONG membership.
-- KNOCK place-scoped live messages with WebSockets, persistence, nested-place routing, and role-aware AI moderation.
-- DIG temporary image/video uploads with validation, moderation, presence access, and 24-hour expiry.
-- Explore memories produced from DIG activity, persistent participant access, current-place access, likes, and comments.
-- Persistent place forums with moderated posts/comments, public anonymity, voting, and a personal post/score view.
-- Private one-to-one messages with user search, saved history, unread state, and WebSocket notifications.
-- Local text moderation with `Qwen3Guard-Gen-0.6B`, constrained routing with `Qwen3-0.6B`, image moderation with `image-safety-classifier-s`, and a fair durable PostgreSQL worker queue. External adapters remain optional fallbacks.
-- Course-sized jailbreak robustness through normalized prompt-injection screening, instruction/data separation, output screening, and fail-closed decisions; hallucination robustness through strict schemas, allow lists, server-supplied place facts, hierarchy checks, and rejection of invented or contradictory routes.
-- Optional single-VM Azure deployment using the same Compose architecture and automatic post-CI updates over SSH.
+Each row states what the feature does and the automated tests that cover it. External services (OpenStreetMap, Twilio, paid AI) are always replaced with deterministic fakes, so the suite never depends on live network calls.
 
-## Architecture and important decisions
+| Feature | What it does | Tests |
+|---|---|---|
+| Registration & auth | Phone-style registration with demo-code fallback or Twilio SMS, Argon2 password hashing, revocable hashed sessions, login/logout, expired-session handling | `tests/integration/test_auth.py`, `tests/unit/test_sms.py`, `tests/security/test_security_boundaries.py` |
+| Rate limiting & input validation | Per-user/action sliding-window limits (including reconnect-resistant KNOCK limiting), strict request schemas, backend-wide body-size cap | `tests/unit/test_request_protection.py`, `tests/unit/test_schemas.py`, `tests/security/test_security_boundaries.py` |
+| Place resolution & presence | OSM/Overpass place and locality resolution, stable place upserts, presence expiry, visit history, VISITOR→BELONG promotion | `tests/unit/test_osm.py`, `tests/integration/test_places.py`, `scripts/smoke-test-overpass.ps1` |
+| Local AI adapter | Structured local-model calls, output parsing/validation, timeouts, fail-closed behavior, optional external-API fallback | `backend/tests/unit/test_ai.py`, `local_ai/tests/test_inference.py`, `backend/tests/integration/test_ai_worker.py` |
+| Jailbreak robustness | Normalized prompt-injection screening (direct and obfuscated), instruction/data separation, output re-screening, fail-closed decisions | security-marked cases in `tests/unit/test_ai.py` and feature integration tests |
+| Hallucination robustness | Strict output schemas and allow-listed categories, rejection of invented/contradictory place IDs, hierarchy checks, confidence-gated routing | `tests/unit/test_ai.py`, `tests/integration/test_ai_worker.py`, `tests/integration/test_knock.py` |
+| Fair job queue | Durable PostgreSQL job table; the worker always serves the user waiting longest since their last turn, so one user flooding jobs can't starve another | `tests/integration/test_jobs.py`, `tests/integration/test_ai_worker.py` |
+| KNOCK live messages | AI-routed, place-scoped WebSocket messages, room isolation, moderation, persistence, reconnect history | `tests/integration/test_knock.py` |
+| DIG temporary media | Upload validation, moderation, 24-hour expiry, presence-gated access | `tests/integration/test_digs.py` |
+| Explore memories | Long-term place memory generated from DIG activity, participant/current-place access, likes and comments | `tests/integration/test_explore.py` |
+| Place forums | Posts/comments with media, anonymous posting, voting, per-post/comment voter visibility for the author, personal post/score view | `tests/integration/test_forum.py` |
+| Direct messages | One-to-one messages with media, search, unread state, live WebSocket notification | `tests/integration/test_dms.py` |
+| Full user journey | Registration → verification → login → presence → KNOCK → forum → DM → logout | `tests/system/test_user_journey.py` |
+| Overload behavior | Concurrent requests, retryable admission limits, concurrent DM persistence | `tests/stress/test_concurrency.py` |
+| Deployment health | Full four-service Compose startup, public route, health checks | `scripts/fresh-start-test.ps1`, `.github/workflows/ci.yml` |
+| Frontend build | TypeScript type-checking and production build | `npm run build` in CI |
 
-Only Nginx is published to the host. The backend, worker, local-AI service, local Overpass service, and PostGIS database remain on the internal Compose network. PostgreSQL stores application data and AI jobs; named volumes store approved media, downloaded model weights, and the regional Overpass index. This keeps the system understandable and deployable for a course project without adding a broker, cache, API gateway, or orchestration platform.
+Run the full backend suite with `docker compose run --build --rm backend pytest -q`, or one category at a time with `pytest -q -m unit|integration|system|security|stress` (see [README.md](../README.md)).
 
-OpenStreetMap and local inference are behind small adapters. Tests replace both with deterministic fakes or mocked transport, so CI does not require model downloads, API credentials, or paid requests. Pre-publication AI decisions fail closed. Every KNOCK is routed to one allow-listed current scope before publication. VISITOR messages are then moderated before publication; BELONG messages publish after routing and are checked by the background worker afterward.
+## Risk assessment
 
-AI output is never trusted to create application facts or bypass authorization. Security tests exercise direct and obfuscated jailbreak attempts, instruction-like output, unknown moderation categories, invented place IDs, routes that contradict named stored places, low-confidence media routes, malformed results, and timeouts. This is tested error containment rather than a claim that every model-level jailbreak or hallucination is detectable; ongoing adversarial evaluation would be required beyond the course deployment.
+### Availability & redundancy
 
-## Availability, scalability, security, and failure handling
-
-### Availability
-
-The course deployment favors recoverability on one machine rather than high availability. Docker health checks cover PostgreSQL, the backend, local AI, and Overpass; smoke and deployment checks exercise the public Nginx-to-backend path. Services use restart policies, and PostgreSQL, media, model files, and the Overpass index use persistent volumes. The deployment workflow checks `/api/health` after rebuilding the stack and reports the deployment as failed if the application does not become healthy. These controls recover from ordinary container-process failures and preserve state across restarts, but the VM and database remain single points of failure. There is no automatic backup, replica, failover host, or zero-downtime deployment, so a host failure or VM update can make the whole application unavailable. A production design would add tested backups, managed database availability, redundant application instances, and monitored failover.
+Docker health checks cover PostgreSQL, the backend, local AI, and Overpass; the deployment workflow checks `/api/health` after every rebuild and fails the job if the app doesn't come back healthy. Named volumes persist the database, media, model weights, and the Overpass index across restarts. What's not covered: the VM and database are single points of failure, and there is no automatic backup, replica, or failover host — a host failure makes the whole app unavailable until it's manually recovered.
 
 ### Scalability
 
-PlacePulse is deliberately sized for a course demonstration: one backend process, one worker, one PostGIS database, one local-AI service, and one regional Overpass service. Nginx and the backend bound request sizes, request bursts, concurrent HTTP requests, WebSocket connections, and backlog growth so overload is rejected predictably instead of exhausting the host. AI work that can run after publication is stored durably in PostgreSQL, and fair job selection prevents one user from starving the others. This design can scale vertically to the limits of one VM, but it is not horizontally scalable: WebSocket rooms and rate limits are process-local, uploaded media is on a local volume, and the database, worker, AI, and Overpass services each have a single active instance. Production horizontal scaling would require shared pub/sub and rate-limit state, shared object storage, safe multi-worker job claiming, and independently scalable managed data and inference services. Those additions are intentionally outside the project scope.
+Nginx and the backend bound request bursts, concurrent HTTP requests, WebSocket connections, and backlog growth, so overload is rejected predictably (`429`/`503`/WebSocket `1013`) instead of exhausting the host. AI work is queued durably in PostgreSQL with fair (longest-waiting-first) job selection, so one user's flood of requests can't starve another user. This scales vertically to the limits of one VM but not horizontally: WebSocket rooms and rate-limit state are process-local, media lives on a local volume, and each of the database/worker/AI/Overpass services runs as a single instance. That's an intentional course-scope tradeoff, not an oversight.
+
+### Spamming requests
+
+Every write endpoint is behind a per-user, per-action sliding-window rate limiter (registration, login, KNOCK, forum posts/comments/votes, DMs, DIG uploads), on top of Nginx's per-IP request/connection limits. Media uploads are capped at 10 MB (15 seconds for video) with allow-listed MIME types and decoded-content validation; the backend also enforces a hard body-size cap independent of any single endpoint. A user hitting these limits gets a `429` with `Retry-After` rather than degrading the service for everyone else.
 
 ### Security
 
-Only Nginx and SSH are exposed publicly on the Azure VM; the backend, worker, database, local AI, and Overpass stay on the internal Compose network. Passwords are Argon2-hashed, session tokens are random and stored only as hashes, protected HTTP and WebSocket operations enforce authentication and authorization, and place-scoped features recheck current presence. Strict request schemas, rate limits, body and WebSocket limits, safe filenames, media validation, upload limits, moderation, and prompt-injection/output checks constrain malicious input. Application secrets remain in ignored `.env` files, while CI deployment uses a dedicated SSH key and pinned host key. Remaining risks include spoofable browser coordinates, unencrypted direct-message content at rest, administrator access to anonymous-post ownership, and the deployment user's effectively root-level Docker access. The [risk assessment](risk-assessment.md) records these limits and proportionate production improvements.
-
-### Failure handling
-
-Expected dependency and input failures produce bounded, explicit outcomes. Invalid requests return `4xx` responses; overload returns `429`, retryable `503`, or WebSocket `1013`. Pre-publication AI failures, timeouts, malformed output, and suspicious prompts fail closed instead of publishing content. If Overpass is importing or unavailable, a location heartbeat returns a temporary-unavailable error without replacing the user's last verified place hierarchy. Failed background AI jobs are stored with a failed status and do not stop the worker loop. Database failure makes `/api/health` return `503`, Compose health dependencies prevent unhealthy services from being treated as ready, and a deployment whose rebuilt application stays unhealthy prints container state and recent logs. Persistent volumes survive normal restarts, but they do not replace backups; permanent VM or volume loss is still unrecoverable without an external export. Automated unit, integration, system, security, stress, and fresh-start checks exercise the important failure paths with deterministic external-service fakes.
-
-## Testing and results
-
-The automated suite covers unit behavior, database/API integration, WebSockets, a cross-feature system journey, security boundaries, and modest concurrent load. The complete mapping is in [feature-test-matrix.md](feature-test-matrix.md).
-
-Step 9 verification results:
-
-- Complete backend suite: 69 passed.
-- Step 9 system/security/stress selection: 15 passed.
-- Frontend TypeScript/Vite production build: passed; dependency audit reported zero vulnerabilities.
-- Isolated fresh Docker Compose startup: passed with database, backend, worker, and web services running; public UI, health endpoint, and authenticated Nginx proxy flow verified.
-- GitHub Actions: backend tests, frontend build, fresh four-service startup, and gated post-CI Azure VM deployment configured.
-
-The system test performs registration, verification, login, location heartbeat, a live KNOCK, persisted KNOCK history, an anonymous forum post, a direct message between two users, and logout. Stress tests use a bounded concurrent burst suitable for the course deployment rather than claiming production-scale capacity.
+Passwords are Argon2-hashed; session tokens are random and stored only as hashes. Only Nginx (and SSH for the Azure VM) is exposed publicly — the backend, worker, database, local AI, and Overpass all stay on the internal Compose network and are unreachable from outside. Every place-scoped feature rechecks current presence server-side before granting access. AI output is never trusted to create facts or bypass authorization: routing can only select backend-supplied place IDs, and invented, contradictory, or low-confidence results are rejected. Known, accepted limitations: browser geolocation can be spoofed, direct messages aren't end-to-end encrypted, and anonymous-post authorship is still visible to whoever can read the database directly.
 
 ## Limitations and future work
 
-The project is designed for one backend process and one VM. Browser geolocation can be spoofed, rate limiting is in memory, direct messages are not end-to-end encrypted, and local volumes are not automatically backed up. Live place heartbeats depend on one locally imported, static Overpass snapshot, while AI-moderated publication depends on sufficient local inference resources and the image classifier covers only SFW/NSFW/NSFL categories. These constraints and proportionate production improvements are detailed in [risk-assessment.md](risk-assessment.md).
-
-Azure VM creation and initial setup remain manual billable operations. After that one-time setup, the optional GitHub Actions job uses a deployment-only SSH key and pinned host key to deploy the exact successful `main` commit automatically. The demonstration video is a submission artifact and must be recorded and linked after the final UI walkthrough.
+The project intentionally runs as one backend process on one VM: no replication, no distributed rate limiting, no managed database failover. Azure VM creation is a manual, billable, one-time step; after that, GitHub Actions redeploys the exact tested `main` commit automatically over SSH (see [README.md](../README.md#deploy-to-azure) for the required secrets). The demonstration video is a submission artifact and needs to be recorded and linked above before final submission.
