@@ -506,6 +506,7 @@ function PresencePanel({
   const [customLocationUrl, setCustomLocationUrl] = useState(
     customLocation?.url ?? "",
   );
+  const [customLocationOpen, setCustomLocationOpen] = useState(false);
   const [requestNumber, setRequestNumber] = useState(
     customLocation ? 1 : 0,
   );
@@ -646,6 +647,7 @@ function PresencePanel({
       setCustomLocationUrl(parsed.url);
       setError("");
       setRequestNumber((value) => value + 1);
+      setCustomLocationOpen(false);
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Invalid OpenStreetMap URL.",
@@ -683,7 +685,10 @@ function PresencePanel({
       )}
 
       {error && <p className="location-error">{error}</p>}
-      <form className="custom-location-box" onSubmit={applyCustomLocation}>
+      <form
+        className={`custom-location-box ${customLocationOpen ? "custom-location-box--open" : ""}`}
+        onSubmit={applyCustomLocation}
+      >
         <label htmlFor="custom-location-url">
           Custom location <small>Optional OSM URL</small>
         </label>
@@ -718,21 +723,33 @@ function PresencePanel({
             : "By default, PlacePulse uses your browser location."}
         </small>
       </form>
-      <button
-        className="button"
-        disabled={status === "requesting"}
-        onClick={() => setRequestNumber((value) => value + 1)}
-        type="button"
-      >
-        <Icon name="locate" size={18} />
-        {status === "requesting"
-          ? "Detecting place..."
-          : customLocation
-            ? "Refresh custom location"
-            : status === "active"
-              ? "Refresh location"
-              : "Share my location"}
-      </button>
+      <div className="location-control-actions">
+        <button
+          aria-expanded={customLocationOpen}
+          aria-label={customLocationOpen ? "Close custom location" : "Set a custom location"}
+          className="button button--secondary custom-location-toggle"
+          onClick={() => setCustomLocationOpen((open) => !open)}
+          type="button"
+        >
+          <Icon name={customLocationOpen ? "x" : "locate"} size={18} />
+          <span>Custom</span>
+        </button>
+        <button
+          className="button location-primary-action"
+          disabled={status === "requesting"}
+          onClick={() => setRequestNumber((value) => value + 1)}
+          type="button"
+        >
+          <Icon name="locate" size={18} />
+          {status === "requesting"
+            ? "Detecting place..."
+            : customLocation
+              ? "Refresh custom location"
+              : status === "active"
+                ? "Refresh location"
+                : "Share my location"}
+        </button>
+      </div>
       <p className="location-note">
         Presence expires after 90 seconds without a location heartbeat.
       </p>
@@ -1308,7 +1325,7 @@ function DigPanel({
 
   return (
     <div
-      className={`dig-map-layer ${selectedDig ? "dig-map-layer--expanded" : ""}`}
+      className={`dig-map-layer ${selectedDig || composerOpen ? "dig-map-layer--expanded" : ""}`}
       aria-live="polite"
     >
       {activeLocalMarkers.map((marker) => {
@@ -2891,6 +2908,18 @@ function SignedInApp({
     ? places.findIndex((place) => place.id === activeScope.id)
     : -1;
 
+  function toggleOverlay(nextOverlay: "explore" | "forum") {
+    setMessagesOpen(false);
+    setAccountOpen(false);
+    setActiveOverlay((current) => current === nextOverlay ? null : nextOverlay);
+  }
+
+  function toggleMessages() {
+    setActiveOverlay(null);
+    setAccountOpen(false);
+    setMessagesOpen((open) => !open);
+  }
+
   return (
     <main className="map-app-shell">
       <header className="map-topbar">
@@ -2905,7 +2934,7 @@ function SignedInApp({
         <nav className="map-nav" aria-label="Place activity">
           <button
             className={activeOverlay === "explore" ? "active" : ""}
-            onClick={() => setActiveOverlay((current) => current === "explore" ? null : "explore")}
+            onClick={() => toggleOverlay("explore")}
             type="button"
           >
             <Icon name="compass" size={18} />
@@ -2913,7 +2942,7 @@ function SignedInApp({
           </button>
           <button
             className={activeOverlay === "forum" ? "active" : ""}
-            onClick={() => setActiveOverlay((current) => current === "forum" ? null : "forum")}
+            onClick={() => toggleOverlay("forum")}
             type="button"
           >
             <Icon name="forum" size={18} />
@@ -2925,7 +2954,7 @@ function SignedInApp({
           <button
             aria-label={dmUnread ? `Messages, ${dmUnread} unread` : "Messages"}
             className={`topbar-action ${messagesOpen ? "active" : ""}`}
-            onClick={() => setMessagesOpen((open) => !open)}
+            onClick={toggleMessages}
             type="button"
           >
             <Icon name="messages" size={20} />

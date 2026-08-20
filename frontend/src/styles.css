@@ -289,6 +289,23 @@ textarea:focus {
   font-size: 0.72rem;
 }
 
+.location-control-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 0.45rem;
+}
+
+.location-control-actions .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.custom-location-toggle {
+  display: none !important;
+}
+
 .text-button {
   border: 0;
   background: transparent;
@@ -2083,7 +2100,7 @@ button:focus-visible {
   display: none;
 }
 
-.map-location-control .presence-panel > .button {
+.map-location-control .location-primary-action {
   min-height: 2.7rem;
   border: 1px solid rgb(23 45 39 / 13%);
   background: rgb(251 252 251 / 92%);
@@ -2092,7 +2109,7 @@ button:focus-visible {
   backdrop-filter: blur(10px);
 }
 
-.map-location-control .presence-panel > .button:hover:not(:disabled) {
+.map-location-control .location-primary-action:hover:not(:disabled) {
   background: #fff;
 }
 
@@ -2665,6 +2682,11 @@ button:focus-visible {
     padding: 0.55rem 0.65rem;
   }
 
+  .topbar-actions {
+    position: relative;
+    z-index: 2;
+  }
+
   .map-brand small {
     max-width: 10rem;
   }
@@ -2673,7 +2695,7 @@ button:focus-visible {
     position: fixed;
     z-index: 55;
     right: 50%;
-    bottom: 0.75rem;
+    bottom: max(0.65rem, env(safe-area-inset-bottom));
     border-color: rgb(23 45 39 / 16%);
     box-shadow: 0 0.8rem 2rem rgb(23 45 39 / 18%);
     transform: translateX(50%);
@@ -2682,8 +2704,8 @@ button:focus-visible {
   .map-workspace {
     min-height: auto;
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(35rem, 68svh) minmax(31rem, 62svh);
-    padding: 0.55rem 0.55rem 5rem;
+    grid-template-rows: minmax(40rem, calc(100svh - 4.5rem)) minmax(31rem, 70svh);
+    padding: 0.55rem 0.55rem calc(5rem + env(safe-area-inset-bottom));
   }
 
   .map-main,
@@ -2754,11 +2776,23 @@ button:focus-visible {
   }
 
   .map-workspace {
-    grid-template-rows: minmax(33rem, 70svh) minmax(32rem, 66svh);
+    grid-template-rows: minmax(40rem, calc(100svh - 4rem)) minmax(32rem, 72svh);
   }
 
   .map-place-label {
-    max-width: calc(100% - 7rem);
+    top: 0.65rem;
+    left: 0.65rem;
+    max-width: calc(100% - 8rem);
+    padding: 0.48rem 0.58rem;
+  }
+
+  .map-place-rank {
+    display: none;
+  }
+
+  .map-dig-toolbar {
+    top: 0.65rem;
+    right: 0.65rem;
   }
 
   .dig-marker-name {
@@ -2780,14 +2814,49 @@ button:focus-visible {
   }
 
   .map-location-control {
-    right: 0.5rem;
-    bottom: 0.5rem;
-    left: 0.5rem;
-    max-width: none;
+    right: auto;
+    bottom: calc(4.9rem + env(safe-area-inset-bottom));
+    left: 0.65rem;
+    max-width: calc(100% - 1.3rem);
   }
 
-  .map-location-control .button {
-    width: 100%;
+  .map-location-control .presence-panel {
+    position: relative;
+  }
+
+  .map-location-control .custom-location-box {
+    position: absolute;
+    bottom: calc(100% + 0.55rem);
+    left: 0;
+    display: none;
+    width: min(21rem, calc(100vw - 1.3rem));
+    max-height: min(23rem, 55svh);
+    overflow-y: auto;
+  }
+
+  .map-location-control .custom-location-box--open {
+    display: grid;
+  }
+
+  .map-location-control .custom-location-toggle {
+    display: inline-flex !important;
+    min-width: 5.3rem;
+    border: 1px solid rgb(23 45 39 / 13%);
+    background: rgb(251 252 251 / 92%);
+    box-shadow: 0 0.5rem 1.3rem rgb(23 45 39 / 12%);
+    backdrop-filter: blur(10px);
+  }
+
+  .map-location-control .location-primary-action {
+    max-width: calc(100vw - 7.25rem);
+    overflow: hidden;
+    padding: 0.7rem 0.8rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .map-overlay {
+    top: 4rem;
   }
 
   .map-overlay .knock-heading {
@@ -2813,6 +2882,33 @@ button:focus-visible {
   .message-drawer ~ .chat-window {
     left: 0.5rem;
     width: auto;
+  }
+}
+
+@media (max-width: 380px) {
+  .map-dig-add {
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .map-dig-add .icon {
+    width: 1.1rem;
+    height: 1.1rem;
+  }
+
+  .map-location-control .custom-location-toggle {
+    min-width: 2.8rem;
+    padding: 0.7rem;
+  }
+
+  .custom-location-toggle span {
+    display: none;
+  }
+
+  .map-location-control .location-primary-action {
+    max-width: calc(100vw - 5.1rem);
   }
 }
 
