@@ -1,5 +1,8 @@
+import asyncio
 import io
 import secrets
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -56,9 +59,14 @@ class FakeForumAI:
         self.route_place_id: int | None = None
         self.route_calls = 0
         self.media_calls = 0
+        self.moderation_started: threading.Event | None = None
+        self.moderation_release: threading.Event | None = None
 
     async def moderate_text(self, text: str) -> object:
         self.calls.append(text)
+        if self.moderation_started is not None and self.moderation_release is not None:
+            self.moderation_started.set()
+            await asyncio.to_thread(self.moderation_release.wait, 5)
         return self.decision
 
     async def moderate_images(self, images: list[ImageModerationInput]) -> object:
@@ -289,6 +297,68 @@ def test_comments_and_votes_are_saved_and_can_be_changed(
         assert db.scalar(select(func.count()).select_from(ForumVote)) == 0
 
 
+def test_pending_post_and_comment_survive_feed_reload_and_stay_private(
+    client: TestClient,
+    fake_forum_ai: FakeForumAI,
+) -> None:
+    place_id = create_place("Persistent Pending Forum", 5004)
+    author = create_user("0500005006", "Patient Author", [place_id])
+    viewer = create_user("0500005007", "Other Viewer", [place_id])
+
+    fake_forum_ai.moderation_started = threading.Event()
+    fake_forum_ai.moderation_release = threading.Event()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        post_future = executor.submit(
+            create_post,
+            client,
+            author,
+            place_id=place_id,
+        )
+        assert fake_forum_ai.moderation_started.wait(2)
+
+        author_feed = client.get(
+            f"/api/forum?place_id={place_id}", headers=auth_headers(author)
+        ).json()
+        viewer_feed = client.get(
+            f"/api/forum?place_id={place_id}", headers=auth_headers(viewer)
+        ).json()
+        assert author_feed["posts"][0]["moderation_status"] == "pending"
+        assert viewer_feed["posts"] == []
+
+        fake_forum_ai.moderation_release.set()
+        created = post_future.result(timeout=5)
+
+    assert created.status_code == 201
+    post_id = created.json()["id"]
+    assert created.json()["moderation_status"] == "approved"
+
+    fake_forum_ai.moderation_started = threading.Event()
+    fake_forum_ai.moderation_release = threading.Event()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        comment_future = executor.submit(
+            client.post,
+            f"/api/forum/posts/{post_id}/comments",
+            headers=auth_headers(author),
+            json={"text": "This comment is still being checked."},
+        )
+        assert fake_forum_ai.moderation_started.wait(2)
+
+        author_post = client.get(
+            f"/api/forum?place_id={place_id}", headers=auth_headers(author)
+        ).json()["posts"][0]
+        viewer_post = client.get(
+            f"/api/forum?place_id={place_id}", headers=auth_headers(viewer)
+        ).json()["posts"][0]
+        assert author_post["comments"][0]["moderation_status"] == "pending"
+        assert viewer_post["comments"] == []
+
+        fake_forum_ai.moderation_release.set()
+        comment = comment_future.result(timeout=5)
+
+    assert comment.status_code == 201
+    assert comment.json()["moderation_status"] == "approved"
+
+
 @pytest.mark.security
 def test_presence_and_moderation_are_required_before_publication(
     client: TestClient,
@@ -313,7 +383,7 @@ def test_presence_and_moderation_are_required_before_publication(
         )
         db.commit()
 
-    fake_forum_ai.media_decision = ModerationDecision(
+    fake_forum_ai.decision = ModerationDecision(
         approved=False,
         reason="Harassing content",
         categories=["harassment"],

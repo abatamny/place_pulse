@@ -11,7 +11,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.ai import (
@@ -181,7 +181,13 @@ def post_response(
         .join(User, User.id == ForumComment.user_id)
         .where(
             ForumComment.post_id == post.id,
-            ForumComment.moderation_status == "approved",
+            or_(
+                ForumComment.moderation_status == "approved",
+                and_(
+                    ForumComment.moderation_status == "pending",
+                    ForumComment.user_id == viewer_user_id,
+                ),
+            ),
         )
         .order_by(ForumComment.created_at, ForumComment.id)
     ).all()
@@ -207,6 +213,7 @@ def post_response(
         is_mine=is_mine,
         title=post.title,
         body=post.body,
+        moderation_status=post.moderation_status,
         upvotes=votes.upvotes,
         downvotes=votes.downvotes,
         score=votes.score,
@@ -219,6 +226,7 @@ def post_response(
                 user_id=comment.user_id,
                 nickname=nickname,
                 text=comment.text,
+                moderation_status=comment.moderation_status,
                 created_at=comment.created_at,
                 media=attachment_response(attachment_for_comment(db, comment.id)),
             )
@@ -245,7 +253,13 @@ def forum_feed(
                 select(ForumPost)
                 .where(
                     ForumPost.place_id == selected_place_id,
-                    ForumPost.moderation_status == "approved",
+                    or_(
+                        ForumPost.moderation_status == "approved",
+                        and_(
+                            ForumPost.moderation_status == "pending",
+                            ForumPost.user_id == auth.user.id,
+                        ),
+                    ),
                 )
                 .order_by(ForumPost.created_at.desc(), ForumPost.id.desc())
                 .limit(FORUM_POST_LIMIT)
@@ -274,9 +288,6 @@ async def create_post(
             selected_place_id = current_content_places(db, auth.user.id).origin.id
         resolve_content_place_scope(db, auth.user.id, selected_place_id)
 
-    post_text = f"Title: {payload.title}\n\nPost: {payload.body}"
-    await require_safe_forum_text(adapter, post_text)
-
     with SessionLocal.begin() as db:
         content_scope = resolve_content_place_scope(
             db,
@@ -290,10 +301,28 @@ async def create_post(
             title=payload.title,
             body=payload.body,
             is_anonymous=payload.is_anonymous,
-            moderation_status="approved",
+            moderation_status="pending",
             created_at=utc_now(),
         )
         db.add(post)
+        db.flush()
+        post_id = post.id
+
+    try:
+        post_text = f"Title: {payload.title}\n\nPost: {payload.body}"
+        await require_safe_forum_text(adapter, post_text)
+    except Exception:
+        with SessionLocal.begin() as db:
+            pending_post = db.get(ForumPost, post_id)
+            if pending_post is not None and pending_post.moderation_status == "pending":
+                db.delete(pending_post)
+        raise
+
+    with SessionLocal.begin() as db:
+        post = db.get(ForumPost, post_id)
+        if post is None:
+            raise HTTPException(status_code=404, detail="Forum post not found")
+        post.moderation_status = "approved"
         db.flush()
         return post_response(db, post, auth.user.id)
 
@@ -325,28 +354,35 @@ async def create_post_with_media(
             selected_place_id = current_content_places(db, auth.user.id).origin.id
         resolve_content_place_scope(db, auth.user.id, selected_place_id)
 
-    await require_safe_forum_text(adapter, f"Title: {title}\n\nPost: {body}")
-    data, media_type, content_type, original_filename = (
-        await read_and_moderate_forum_media(adapter, file)
-    )
-    storage_name, media_path = store_media(data, original_filename, "attachments")
+    with SessionLocal.begin() as db:
+        content_scope = resolve_content_place_scope(
+            db, auth.user.id, selected_place_id
+        )
+        post = ForumPost(
+            place_id=content_scope.scope.id,
+            origin_place_id=content_scope.origin.id,
+            user_id=auth.user.id,
+            title=title,
+            body=body,
+            is_anonymous=is_anonymous,
+            moderation_status="pending",
+            created_at=utc_now(),
+        )
+        db.add(post)
+        db.flush()
+        post_id = post.id
+
     try:
+        await require_safe_forum_text(adapter, f"Title: {title}\n\nPost: {body}")
+        data, media_type, content_type, original_filename = (
+            await read_and_moderate_forum_media(adapter, file)
+        )
+        storage_name, media_path = store_media(data, original_filename, "attachments")
         with SessionLocal.begin() as db:
-            content_scope = resolve_content_place_scope(
-                db, auth.user.id, selected_place_id
-            )
-            post = ForumPost(
-                place_id=content_scope.scope.id,
-                origin_place_id=content_scope.origin.id,
-                user_id=auth.user.id,
-                title=title,
-                body=body,
-                is_anonymous=is_anonymous,
-                moderation_status="approved",
-                created_at=utc_now(),
-            )
-            db.add(post)
-            db.flush()
+            post = db.get(ForumPost, post_id)
+            if post is None:
+                raise HTTPException(status_code=404, detail="Forum post not found")
+            post.moderation_status = "approved"
             db.add(
                 MediaAttachment(
                     user_id=auth.user.id,
@@ -363,7 +399,12 @@ async def create_post_with_media(
             db.flush()
             return post_response(db, post, auth.user.id)
     except Exception:
-        media_path.unlink(missing_ok=True)
+        if "media_path" in locals():
+            media_path.unlink(missing_ok=True)
+        with SessionLocal.begin() as db:
+            pending_post = db.get(ForumPost, post_id)
+            if pending_post is not None and pending_post.moderation_status == "pending":
+                db.delete(pending_post)
         raise
 
 
@@ -383,24 +424,40 @@ async def create_comment(
     with SessionLocal() as db:
         require_post_access(db, auth.user.id, post_id)
 
-    await require_safe_forum_text(adapter, payload.text)
-
     with SessionLocal.begin() as db:
         require_post_access(db, auth.user.id, post_id)
         comment = ForumComment(
             post_id=post_id,
             user_id=auth.user.id,
             text=payload.text,
-            moderation_status="approved",
+            moderation_status="pending",
             created_at=utc_now(),
         )
         db.add(comment)
+        db.flush()
+        comment_id = comment.id
+
+    try:
+        await require_safe_forum_text(adapter, payload.text)
+    except Exception:
+        with SessionLocal.begin() as db:
+            pending_comment = db.get(ForumComment, comment_id)
+            if pending_comment is not None and pending_comment.moderation_status == "pending":
+                db.delete(pending_comment)
+        raise
+
+    with SessionLocal.begin() as db:
+        comment = db.get(ForumComment, comment_id)
+        if comment is None:
+            raise HTTPException(status_code=404, detail="Forum comment not found")
+        comment.moderation_status = "approved"
         db.flush()
         return ForumCommentResponse(
             id=comment.id,
             user_id=comment.user_id,
             nickname=auth.user.nickname,
             text=comment.text,
+            moderation_status=comment.moderation_status,
             created_at=comment.created_at,
         )
 
@@ -425,23 +482,30 @@ async def create_comment_with_media(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     with SessionLocal() as db:
         require_post_access(db, auth.user.id, post_id)
-    await require_safe_forum_text(adapter, text)
-    data, media_type, content_type, original_filename = (
-        await read_and_moderate_forum_media(adapter, file)
-    )
-    storage_name, media_path = store_media(data, original_filename, "attachments")
+    with SessionLocal.begin() as db:
+        require_post_access(db, auth.user.id, post_id)
+        comment = ForumComment(
+            post_id=post_id,
+            user_id=auth.user.id,
+            text=text,
+            moderation_status="pending",
+            created_at=utc_now(),
+        )
+        db.add(comment)
+        db.flush()
+        comment_id = comment.id
+
     try:
+        await require_safe_forum_text(adapter, text)
+        data, media_type, content_type, original_filename = (
+            await read_and_moderate_forum_media(adapter, file)
+        )
+        storage_name, media_path = store_media(data, original_filename, "attachments")
         with SessionLocal.begin() as db:
-            require_post_access(db, auth.user.id, post_id)
-            comment = ForumComment(
-                post_id=post_id,
-                user_id=auth.user.id,
-                text=text,
-                moderation_status="approved",
-                created_at=utc_now(),
-            )
-            db.add(comment)
-            db.flush()
+            comment = db.get(ForumComment, comment_id)
+            if comment is None:
+                raise HTTPException(status_code=404, detail="Forum comment not found")
+            comment.moderation_status = "approved"
             attachment = MediaAttachment(
                 user_id=auth.user.id,
                 forum_comment_id=comment.id,
@@ -460,11 +524,17 @@ async def create_comment_with_media(
                 user_id=comment.user_id,
                 nickname=auth.user.nickname,
                 text=comment.text,
+                moderation_status=comment.moderation_status,
                 created_at=comment.created_at,
                 media=attachment_response(attachment),
             )
     except Exception:
-        media_path.unlink(missing_ok=True)
+        if "media_path" in locals():
+            media_path.unlink(missing_ok=True)
+        with SessionLocal.begin() as db:
+            pending_comment = db.get(ForumComment, comment_id)
+            if pending_comment is not None and pending_comment.moderation_status == "pending":
+                db.delete(pending_comment)
         raise
 
 
@@ -525,7 +595,7 @@ def personal_forum(
                 select(ForumPost)
                 .where(
                     ForumPost.user_id == auth.user.id,
-                    ForumPost.moderation_status == "approved",
+                    ForumPost.moderation_status.in_(("approved", "pending")),
                 )
                 .order_by(ForumPost.created_at.desc(), ForumPost.id.desc())
             )

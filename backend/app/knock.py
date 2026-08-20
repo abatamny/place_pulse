@@ -13,7 +13,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from pydantic import ValidationError
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import aliased
 
 from app.ai import (
@@ -259,7 +259,7 @@ def save_message(
             text=text,
             author_rank=current_rank,
             moderation_status=(
-                "post_pending" if current_rank == "BELONG" else "approved"
+                "post_pending" if current_rank == "BELONG" else "pending"
             ),
         )
         db.add(message)
@@ -296,6 +296,30 @@ def save_message(
             text=message.text,
             created_at=message.created_at,
         )
+
+
+def approve_pending_message(message_id: int, user_id: int) -> bool:
+    with SessionLocal.begin() as db:
+        message = db.get(KnockMessage, message_id)
+        if (
+            message is None
+            or message.user_id != user_id
+            or message.moderation_status != "pending"
+        ):
+            return False
+        message.moderation_status = "approved"
+        return True
+
+
+def delete_pending_message(message_id: int, user_id: int) -> None:
+    with SessionLocal.begin() as db:
+        message = db.get(KnockMessage, message_id)
+        if (
+            message is not None
+            and message.user_id == user_id
+            and message.moderation_status == "pending"
+        ):
+            db.delete(message)
 
 
 async def publish_message(
@@ -349,17 +373,6 @@ async def publish_message(
         place for place in active_places if place.id == routing.place_id
     )
 
-    if target.rank == "VISITOR":
-        moderation = await moderate_before_publication(adapter, text)
-        if not moderation.approved:
-            await send_error(
-                connection,
-                "moderation_rejected",
-                moderation.reason,
-                client_id,
-            )
-            return
-
     saved = save_message(
         user_id=auth.user.id,
         nickname=auth.user.nickname,
@@ -374,6 +387,31 @@ async def publish_message(
             client_id,
         )
         return
+
+    if target.rank == "VISITOR":
+        try:
+            moderation = await moderate_before_publication(adapter, text)
+        except Exception:
+            delete_pending_message(saved.id, auth.user.id)
+            raise
+        if not moderation.approved:
+            delete_pending_message(saved.id, auth.user.id)
+            await send_error(
+                connection,
+                "moderation_rejected",
+                moderation.reason,
+                client_id,
+            )
+            return
+        if not approve_pending_message(saved.id, auth.user.id):
+            await send_error(
+                connection,
+                "moderation_failed",
+                "The KNOCK could not finish its safety check. Try again.",
+                client_id,
+            )
+            return
+        saved = saved.model_copy(update={"moderation_status": "approved"})
 
     await room_manager.broadcast(
         target.id,
@@ -486,7 +524,15 @@ def knock_history(
             .join(User, User.id == KnockMessage.user_id)
             .where(
                 KnockMessage.place_id.in_(active_place_ids),
-                KnockMessage.moderation_status != "flagged",
+                or_(
+                    KnockMessage.moderation_status.in_(
+                        ("approved", "post_pending")
+                    ),
+                    and_(
+                        KnockMessage.moderation_status == "pending",
+                        KnockMessage.user_id == auth.user.id,
+                    ),
+                ),
             )
             .order_by(KnockMessage.created_at.desc(), KnockMessage.id.desc())
             .limit(HISTORY_LIMIT)
@@ -539,6 +585,10 @@ def knock_moderation_status(
             .where(
                 KnockMessage.id.in_(message_ids),
                 KnockMessage.place_id.in_(active_place_ids),
+                or_(
+                    KnockMessage.moderation_status != "pending",
+                    KnockMessage.user_id == auth.user.id,
+                ),
             )
             .order_by(KnockMessage.id)
         ).all()

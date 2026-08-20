@@ -71,7 +71,7 @@ type KnockMessage = {
   user_id: number;
   nickname: string;
   author_rank: "VISITOR" | "BELONG";
-  moderation_status: "approved" | "post_pending" | "flagged";
+  moderation_status: "pending" | "approved" | "post_pending" | "flagged";
   text: string;
   created_at: string;
 };
@@ -164,6 +164,7 @@ type ForumComment = {
   user_id: number;
   nickname: string;
   text: string;
+  moderation_status: "pending" | "approved";
   created_at: string;
   media: MediaAttachment | null;
 };
@@ -182,6 +183,7 @@ type ForumPost = {
   is_mine: boolean;
   title: string;
   body: string;
+  moderation_status: "pending" | "approved";
   upvotes: number;
   downvotes: number;
   score: number;
@@ -876,7 +878,7 @@ function KnockPanel({
   const [error, setError] = useState("");
   const placeKey = places.map((place) => place.id).join(",");
   const moderationPendingKey = messages
-    .filter((message) => message.moderation_status === "post_pending")
+    .filter((message) => ["pending", "post_pending"].includes(message.moderation_status))
     .map((message) => message.id)
     .sort((left, right) => left - right)
     .join(",");
@@ -1042,16 +1044,23 @@ function KnockPanel({
         );
         setMessages((current) => {
           let changed = false;
-          const updated = current.map((message) => {
+          const updated = current.flatMap((message) => {
             const moderationStatus = statuses.get(message.id);
+            if (
+              message.moderation_status === "pending" &&
+              moderationStatus === undefined
+            ) {
+              changed = true;
+              return [];
+            }
             if (
               moderationStatus === undefined ||
               moderationStatus === message.moderation_status
             ) {
-              return message;
+              return [message];
             }
             changed = true;
-            return { ...message, moderation_status: moderationStatus };
+            return [{ ...message, moderation_status: moderationStatus }];
           });
           return changed ? updated : current;
         });
@@ -1141,7 +1150,7 @@ function KnockPanel({
           <>
             {messages.map((message) => (
               <article
-                className={`knock-message ${message.user_id === user.id ? "knock-message--own" : ""} ${message.moderation_status === "flagged" ? "moderation-rejected" : ""}`}
+                className={`knock-message ${message.user_id === user.id ? "knock-message--own" : ""} ${["pending", "post_pending"].includes(message.moderation_status) ? "moderation-pending" : ""} ${message.moderation_status === "flagged" ? "moderation-rejected" : ""}`}
                 key={message.id}
               >
                 <div className="message-meta">
@@ -1157,6 +1166,9 @@ function KnockPanel({
                   {message.moderation_status === "flagged" && (
                     <span className="rejected-status">Removed</span>
                   )}
+                  {["pending", "post_pending"].includes(message.moderation_status) && (
+                    <span className="pending-status">Checking</span>
+                  )}
                   <time dateTime={message.created_at}>
                     {new Date(message.created_at).toLocaleTimeString([], {
                       hour: "2-digit",
@@ -1169,9 +1181,11 @@ function KnockPanel({
                     ? "This message was removed because it did not pass the background safety check."
                     : message.text}
                 </p>
-                {message.moderation_status === "post_pending" && (
+                {["pending", "post_pending"].includes(message.moderation_status) && (
                   <small className="background-check-note">
-                    Being checked in the background
+                    {message.moderation_status === "pending"
+                      ? "Checking before publication · visible only to you"
+                      : "Being checked in the background"}
                   </small>
                 )}
               </article>
@@ -2170,8 +2184,20 @@ function ForumPostCard({
 
   const serverCommentIds = new Set(post.comments.map((item) => item.id));
   const visibleComments = [
-    ...post.comments,
+    ...post.comments.filter((item) => item.moderation_status === "approved"),
     ...approvedComments.filter((item) => !serverCommentIds.has(item.id)),
+  ];
+  const visiblePendingComments = [
+    ...post.comments
+      .filter((item) => item.moderation_status === "pending")
+      .map((item) => ({
+        id: item.id,
+        text: item.text,
+        created_at: item.created_at,
+        media_name: item.media?.original_filename ?? null,
+        status: "checking" as const,
+      })),
+    ...pendingComments,
   ];
 
   return (
@@ -2194,7 +2220,7 @@ function ForumPostCard({
             <span className="score-pill">{post.score} score</span>
             <span>
               <Icon name="messages" size={15} />{" "}
-              {visibleComments.length + pendingComments.length} comments
+              {visibleComments.length + visiblePendingComments.length} comments
             </span>
             <time dateTime={post.created_at}>
               {new Date(post.created_at).toLocaleDateString()}
@@ -2265,7 +2291,7 @@ function ForumPostCard({
                   </time>
                 </div>
               ))}
-              {pendingComments.map((item) => (
+              {visiblePendingComments.map((item) => (
                 <div
                   className={`forum-comment forum-comment--optimistic ${item.status === "rejected" ? "moderation-rejected" : "moderation-pending"}`}
                   key={item.id}
@@ -2288,7 +2314,7 @@ function ForumPostCard({
                   </small>
                 </div>
               ))}
-              {visibleComments.length === 0 && pendingComments.length === 0 && (
+              {visibleComments.length === 0 && visiblePendingComments.length === 0 && (
                 <p className="forum-no-comments">No comments yet.</p>
               )}
             </div>
@@ -2337,6 +2363,14 @@ function ForumPanel({
   const [pendingPosts, setPendingPosts] = useState<PendingForumPost[]>([]);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const persistedPendingKey = posts
+    .flatMap((post) => [
+      ...(post.moderation_status === "pending" ? [`post-${post.id}`] : []),
+      ...post.comments
+        .filter((comment) => comment.moderation_status === "pending")
+        .map((comment) => `comment-${comment.id}`),
+    ])
+    .join(",");
 
   useEffect(() => {
     let active = true;
@@ -2388,6 +2422,16 @@ function ForumPanel({
     };
   }, [mode, activeScope?.id, refreshNumber, token]);
 
+  useEffect(() => {
+    if (!persistedPendingKey) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setRefreshNumber((value) => value + 1);
+    }, 2_000);
+    return () => window.clearTimeout(timer);
+  }, [persistedPendingKey, refreshNumber]);
+
   async function submitPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -2418,6 +2462,7 @@ function ForumPanel({
       is_mine: true,
       title,
       body,
+      moderation_status: "pending",
       upvotes: 0,
       downvotes: 0,
       score: 0,
@@ -2474,7 +2519,13 @@ function ForumPanel({
     }
   }
 
-  const visiblePendingPosts = pendingPosts;
+  const visiblePendingPosts = [
+    ...pendingPosts,
+    ...posts.filter((post) => post.moderation_status === "pending"),
+  ];
+  const visibleApprovedPosts = posts.filter(
+    (post) => post.moderation_status === "approved",
+  );
 
   return (
     <section className="knock-card forum-card">
@@ -2621,7 +2672,7 @@ function ForumPanel({
                 </div>
               </article>
             ))}
-            {posts.map((post) => (
+            {visibleApprovedPosts.map((post) => (
               <ForumPostCard
                 key={post.id}
                 onChanged={() => setRefreshNumber((value) => value + 1)}

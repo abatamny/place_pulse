@@ -149,7 +149,7 @@ class KnockMessageResponse(BaseModel):
     user_id: int
     nickname: str
     author_rank: str
-    moderation_status: Literal["approved", "post_pending", "flagged"]
+    moderation_status: Literal["pending", "approved", "post_pending", "flagged"]
     text: str
     created_at: datetime
 
@@ -160,7 +160,7 @@ class KnockHistoryResponse(BaseModel):
 
 class KnockModerationStatus(BaseModel):
     id: int
-    moderation_status: Literal["approved", "post_pending", "flagged"]
+    moderation_status: Literal["pending", "approved", "post_pending", "flagged"]
 
 
 class KnockModerationStatusResponse(BaseModel):
@@ -281,6 +281,7 @@ class ForumCommentResponse(BaseModel):
     user_id: int
     nickname: str
     text: str
+    moderation_status: Literal["pending", "approved"]
     created_at: datetime
     media: MediaAttachmentResponse | None = None
 
@@ -299,6 +300,7 @@ class ForumPostResponse(BaseModel):
     is_mine: bool
     title: str
     body: str
+    moderation_status: Literal["pending", "approved"]
     upvotes: int
     downvotes: int
     score: int

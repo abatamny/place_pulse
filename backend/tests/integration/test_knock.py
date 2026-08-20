@@ -1,5 +1,6 @@
 import asyncio
 import secrets
+import threading
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -49,9 +50,14 @@ class FakeKnockAI:
         self.moderation_calls = 0
         self.routing_calls = 0
         self.routing_places: list[PlaceRouteOption] = []
+        self.moderation_started: threading.Event | None = None
+        self.moderation_release: threading.Event | None = None
 
     async def moderate_text(self, text: str) -> object:
         self.moderation_calls += 1
+        if self.moderation_started is not None and self.moderation_release is not None:
+            self.moderation_started.set()
+            await asyncio.to_thread(self.moderation_release.wait, 5)
         return self.moderation
 
     async def route_message(
@@ -295,6 +301,45 @@ def test_reconnecting_user_can_send_and_load_saved_history(
         "Before reconnect",
         "After reconnect",
     ]
+
+
+def test_visitor_pending_message_survives_history_reload_and_stays_private(
+    client: TestClient, fake_ai: FakeKnockAI
+) -> None:
+    place_id = create_place("Pending Knock Hall", 2302)
+    sender = create_present_user("0500001302", "Pending Sender", [place_id])
+    viewer = create_present_user("0500001303", "Waiting Viewer", [place_id])
+    fake_ai.moderation_started = threading.Event()
+    fake_ai.moderation_release = threading.Event()
+
+    with client.websocket_connect(websocket_path(sender)) as websocket:
+        assert_ready(websocket)
+        websocket.send_json(
+            {
+                "type": "message",
+                "client_id": "pending-refresh-1",
+                "text": "This message is still being checked",
+            }
+        )
+        assert fake_ai.moderation_started.wait(2)
+
+        sender_history = client.get(
+            "/api/knock/history",
+            headers={"Authorization": f"Bearer {sender.token}"},
+        )
+        viewer_history = client.get(
+            "/api/knock/history",
+            headers={"Authorization": f"Bearer {viewer.token}"},
+        )
+        assert sender_history.status_code == 200
+        assert sender_history.json()["messages"][0]["moderation_status"] == "pending"
+        assert viewer_history.json()["messages"] == []
+
+        fake_ai.moderation_release.set()
+        published = websocket.receive_json()
+
+    assert published["type"] == "message"
+    assert published["message"]["moderation_status"] == "approved"
 
 
 def test_belong_message_is_immediate_and_queued_for_background_check(
