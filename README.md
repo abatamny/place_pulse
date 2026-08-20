@@ -295,7 +295,7 @@ The course-sized Azure path runs the same Docker Compose stack on one Ubuntu VM,
 
 Prerequisites:
 
-- An Ubuntu 24.04 Azure VM with a public IP or DNS name
+- An Ubuntu 24.04 Azure VM with a public IP or DNS name, with 8GiB RAM.
 - Azure network rules allowing inbound TCP ports 22 and 80
 - An SSH user with `sudo` access
 - The repository available from the public GitHub URL, with the target branch pushed
