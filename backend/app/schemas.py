@@ -130,6 +130,7 @@ class PresenceResponse(BaseModel):
 class KnockSendPayload(StrictRequestModel):
     type: Literal["message"]
     place_id: int | None = Field(default=None, gt=0)
+    client_id: str | None = Field(default=None, min_length=1, max_length=80)
     text: str = Field(min_length=1, max_length=500)
 
     @field_validator("text")
@@ -149,12 +150,22 @@ class KnockMessageResponse(BaseModel):
     user_id: int
     nickname: str
     author_rank: str
+    moderation_status: Literal["approved", "post_pending", "flagged"]
     text: str
     created_at: datetime
 
 
 class KnockHistoryResponse(BaseModel):
     messages: list[KnockMessageResponse]
+
+
+class KnockModerationStatus(BaseModel):
+    id: int
+    moderation_status: Literal["approved", "post_pending", "flagged"]
+
+
+class KnockModerationStatusResponse(BaseModel):
+    messages: list[KnockModerationStatus]
 
 
 class DigResponse(BaseModel):

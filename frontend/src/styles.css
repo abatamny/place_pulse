@@ -2973,6 +2973,35 @@ button:focus-visible {
   font-weight: 700;
 }
 
+.background-check-note {
+  display: block;
+  margin-top: 0.45rem;
+  color: #806328;
+  font-size: 0.67rem;
+  font-weight: 700;
+}
+
+.moderation-rejected {
+  border-color: #d58c82 !important;
+  background: #fff0ed !important;
+}
+
+.moderation-rejected p {
+  color: #832f28;
+}
+
+.rejected-status {
+  display: inline-flex;
+  width: max-content;
+  padding: 0.18rem 0.42rem;
+  border-radius: 999px;
+  background: #f4c7c1;
+  color: #832f28 !important;
+  font-size: 0.64rem !important;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 @keyframes pending-blink {
   50% { opacity: 0.3; }
 }

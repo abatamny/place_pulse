@@ -2,8 +2,16 @@ import asyncio
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from pydantic import ValidationError
 from sqlalchemy import and_, select
 from sqlalchemy.orm import aliased
@@ -21,7 +29,13 @@ from app.place_labels import place_display_name
 from app.place_scope import resolve_content_place_scope
 from app.places import PRESENCE_TTL, expire_stale_presences
 from app.rate_limit import AuthRateLimiter
-from app.schemas import KnockHistoryResponse, KnockMessageResponse, KnockSendPayload
+from app.schemas import (
+    KnockHistoryResponse,
+    KnockMessageResponse,
+    KnockModerationStatus,
+    KnockModerationStatusResponse,
+    KnockSendPayload,
+)
 
 HISTORY_LIMIT = 50
 MESSAGES_PER_MINUTE = 20
@@ -188,11 +202,17 @@ room_manager = KnockRoomManager()
 
 
 async def send_error(
-    connection: RoomConnection, code: str, detail: str
+    connection: RoomConnection,
+    code: str,
+    detail: str,
+    client_id: str | None = None,
 ) -> None:
+    payload = {"type": "error", "code": code, "detail": detail}
+    if client_id is not None:
+        payload["client_id"] = client_id
     await room_manager.send(
         connection,
-        {"type": "error", "code": code, "detail": detail},
+        payload,
     )
 
 
@@ -267,6 +287,7 @@ def save_message(
             user_id=message.user_id,
             nickname=nickname,
             author_rank=message.author_rank,
+            moderation_status=message.moderation_status,
             text=message.text,
             created_at=message.created_at,
         )
@@ -278,6 +299,7 @@ async def publish_message(
     adapter: AIAdapter,
     text: str,
     place_id: int | None,
+    client_id: str | None,
 ) -> None:
     active_places = active_places_for_user(auth.user.id)
     if not active_places:
@@ -285,6 +307,7 @@ async def publish_message(
             connection,
             "presence_required",
             "Share your location before sending a KNOCK.",
+            client_id,
         )
         return
 
@@ -305,6 +328,7 @@ async def publish_message(
             connection,
             "invalid_scope",
             "Select one of your current place scopes before sending.",
+            client_id,
         )
         return
 
@@ -315,6 +339,7 @@ async def publish_message(
                 connection,
                 "moderation_rejected",
                 moderation.reason,
+                client_id,
             )
             return
 
@@ -329,12 +354,17 @@ async def publish_message(
             connection,
             "presence_required",
             "Your presence expired. Share your location again.",
+            client_id,
         )
         return
 
     await room_manager.broadcast(
         target.id,
-        {"type": "message", "message": saved.model_dump(mode="json")},
+        {
+            "type": "message",
+            "message": saved.model_dump(mode="json"),
+            "client_id": client_id,
+        },
     )
 
 
@@ -400,6 +430,7 @@ async def knock_websocket(
                     connection,
                     "rate_limited",
                     "Too many messages. Wait a moment before trying again.",
+                    payload.client_id,
                 )
                 continue
 
@@ -409,6 +440,7 @@ async def knock_websocket(
                 adapter,
                 payload.text,
                 payload.place_id,
+                payload.client_id,
             )
     except WebSocketDisconnect:
         pass
@@ -454,9 +486,50 @@ def knock_history(
                 user_id=message.user_id,
                 nickname=nickname,
                 author_rank=message.author_rank,
+                moderation_status=message.moderation_status,
                 text=message.text,
                 created_at=message.created_at,
             )
             for message, place, origin, nickname in reversed(rows)
         ]
         return KnockHistoryResponse(messages=messages)
+
+
+@knock_router.get(
+    "/moderation-status",
+    response_model=KnockModerationStatusResponse,
+)
+def knock_moderation_status(
+    message_ids: Annotated[
+        list[int],
+        Query(min_length=1, max_length=HISTORY_LIMIT),
+    ],
+    auth: AuthContext = Depends(require_auth),
+) -> KnockModerationStatusResponse:
+    active_place_ids = {
+        place.id for place in active_places_for_user(auth.user.id)
+    }
+    if not active_place_ids:
+        raise HTTPException(
+            status_code=403,
+            detail="Current presence at this place is required",
+        )
+
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(KnockMessage.id, KnockMessage.moderation_status)
+            .where(
+                KnockMessage.id.in_(message_ids),
+                KnockMessage.place_id.in_(active_place_ids),
+            )
+            .order_by(KnockMessage.id)
+        ).all()
+        return KnockModerationStatusResponse(
+            messages=[
+                KnockModerationStatus(
+                    id=message_id,
+                    moderation_status=moderation_status,
+                )
+                for message_id, moderation_status in rows
+            ]
+        )

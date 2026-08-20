@@ -71,12 +71,17 @@ type KnockMessage = {
   user_id: number;
   nickname: string;
   author_rank: "VISITOR" | "BELONG";
+  moderation_status: "approved" | "post_pending" | "flagged";
   text: string;
   created_at: string;
 };
 
 type KnockHistoryResponse = {
   messages: KnockMessage[];
+};
+
+type KnockModerationStatusResponse = {
+  messages: Array<Pick<KnockMessage, "id" | "moderation_status">>;
 };
 
 type Dig = {
@@ -185,6 +190,8 @@ type PendingForumPost = ForumPost & {
 
 type PendingKnock = {
   id: number;
+  client_id: string;
+  status: "checking" | "rejected";
   text: string;
   created_at: string;
 };
@@ -781,6 +788,11 @@ function KnockPanel({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const placeKey = places.map((place) => place.id).join(",");
+  const moderationPendingKey = messages
+    .filter((message) => message.moderation_status === "post_pending")
+    .map((message) => message.id)
+    .sort((left, right) => left - right)
+    .join(",");
 
   useEffect(() => {
     scrollFeedToEnd(feedRef.current);
@@ -848,8 +860,15 @@ function KnockPanel({
           );
           if (incoming.user_id === user.id) {
             setPendingMessages((current) => {
+              const clientId = typeof payload.client_id === "string"
+                ? payload.client_id
+                : null;
               const matchIndex = current.findIndex(
-                (pending) => pending.text === incoming.text,
+                (pending) => pending.status === "checking" && (
+                  clientId
+                    ? pending.client_id === clientId
+                    : pending.text === incoming.text
+                ),
               );
               return matchIndex === -1
                 ? current
@@ -860,8 +879,22 @@ function KnockPanel({
         } else if (payload.type === "dig_published") {
           onDigPublished(payload.dig as Dig);
         } else if (payload.type === "error") {
-          setPendingMessages((current) => current.slice(1));
-          setError(payload.detail || "The KNOCK could not be sent.");
+          const clientId = typeof payload.client_id === "string"
+            ? payload.client_id
+            : null;
+          if (payload.code === "moderation_rejected" && clientId) {
+            setPendingMessages((current) => current.map((pending) =>
+              pending.client_id === clientId
+                ? { ...pending, status: "rejected" }
+                : pending
+            ));
+            setError("");
+          } else {
+            setPendingMessages((current) => clientId
+              ? current.filter((pending) => pending.client_id !== clientId)
+              : current.slice(1));
+            setError(payload.detail || "The KNOCK could not be sent.");
+          }
         }
       };
 
@@ -894,6 +927,69 @@ function KnockPanel({
     };
   }, [token, placeKey, activeScope?.id, user.id, onDigPublished]);
 
+  useEffect(() => {
+    if (!moderationPendingKey) {
+      return;
+    }
+
+    let active = true;
+    let pollTimer: number | undefined;
+    const messageIds = moderationPendingKey.split(",").map(Number);
+
+    async function refreshModerationStatuses() {
+      const params = new URLSearchParams();
+      messageIds.forEach((messageId) => {
+        params.append("message_ids", String(messageId));
+      });
+
+      try {
+        const response = await apiRequest<KnockModerationStatusResponse>(
+          `/api/knock/moderation-status?${params.toString()}`,
+          {},
+          token,
+        );
+        if (!active) {
+          return;
+        }
+        const statuses = new Map(
+          response.messages.map((message) => [
+            message.id,
+            message.moderation_status,
+          ]),
+        );
+        setMessages((current) => {
+          let changed = false;
+          const updated = current.map((message) => {
+            const moderationStatus = statuses.get(message.id);
+            if (
+              moderationStatus === undefined ||
+              moderationStatus === message.moderation_status
+            ) {
+              return message;
+            }
+            changed = true;
+            return { ...message, moderation_status: moderationStatus };
+          });
+          return changed ? updated : current;
+        });
+      } catch {
+        // Keep the current bubble while presence or connectivity recovers.
+      } finally {
+        if (active) {
+          pollTimer = window.setTimeout(refreshModerationStatuses, 2_000);
+        }
+      }
+    }
+
+    void refreshModerationStatuses();
+    return () => {
+      active = false;
+      if (pollTimer !== undefined) {
+        window.clearTimeout(pollTimer);
+      }
+    };
+  }, [moderationPendingKey, token]);
+
   function sendKnock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = draft.trim();
@@ -908,13 +1004,22 @@ function KnockPanel({
       setError("Select a current place scope before sending.");
       return;
     }
+    const pendingId = pendingIdRef.current--;
+    const clientId = `knock-${user.id}-${Math.abs(pendingId)}`;
     socketRef.current.send(
-      JSON.stringify({ type: "message", place_id: activeScope.id, text }),
+      JSON.stringify({
+        type: "message",
+        place_id: activeScope.id,
+        client_id: clientId,
+        text,
+      }),
     );
     setPendingMessages((current) => [
       ...current,
       {
-        id: pendingIdRef.current--,
+        id: pendingId,
+        client_id: clientId,
+        status: "checking",
         text,
         created_at: new Date().toISOString(),
       },
@@ -963,11 +1068,14 @@ function KnockPanel({
           <>
             {messages.map((message) => (
               <article
-                className={`knock-message ${message.user_id === user.id ? "knock-message--own" : ""}`}
+                className={`knock-message ${message.user_id === user.id ? "knock-message--own" : ""} ${message.moderation_status === "flagged" ? "moderation-rejected" : ""}`}
                 key={message.id}
               >
                 <div className="message-meta">
                   <strong>{message.nickname}</strong>
+                  {message.moderation_status === "flagged" && (
+                    <span className="rejected-status">Removed</span>
+                  )}
                   <time dateTime={message.created_at}>
                     {new Date(message.created_at).toLocaleTimeString([], {
                       hour: "2-digit",
@@ -975,17 +1083,28 @@ function KnockPanel({
                     })}
                   </time>
                 </div>
-                <p>{message.text}</p>
+                <p>
+                  {message.moderation_status === "flagged"
+                    ? "This message was removed because it did not pass the background safety check."
+                    : message.text}
+                </p>
+                {message.moderation_status === "post_pending" && (
+                  <small className="background-check-note">
+                    Being checked in the background
+                  </small>
+                )}
               </article>
             ))}
             {pendingMessages.map((message) => (
               <article
-                className="knock-message knock-message--own moderation-pending"
+                className={`knock-message knock-message--own ${message.status === "rejected" ? "moderation-rejected" : "moderation-pending"}`}
                 key={message.id}
               >
                 <div className="message-meta">
                   <strong>{user.nickname}</strong>
-                  <span className="pending-status">{pendingStatus}</span>
+                  <span className={message.status === "rejected" ? "rejected-status" : "pending-status"}>
+                    {message.status === "rejected" ? "Not sent" : pendingStatus}
+                  </span>
                   <time dateTime={message.created_at}>
                     {new Date(message.created_at).toLocaleTimeString([], {
                       hour: "2-digit",
@@ -993,10 +1112,16 @@ function KnockPanel({
                     })}
                   </time>
                 </div>
-                <p>{message.text}</p>
-                <small className="pending-explanation">
-                  {pendingExplanation}
-                </small>
+                <p>
+                  {message.status === "rejected"
+                    ? "This message was not sent because it did not pass the safety check."
+                    : message.text}
+                </p>
+                {message.status === "checking" && (
+                  <small className="pending-explanation">
+                    {pendingExplanation}
+                  </small>
+                )}
               </article>
             ))}
           </>

@@ -246,11 +246,18 @@ def test_visitor_moderation_rejection_is_not_published(
 
     with client.websocket_connect(websocket_path(visitor)) as websocket:
         assert_ready(websocket)
-        websocket.send_json({"type": "message", "text": "Rejected text"})
+        websocket.send_json(
+            {
+                "type": "message",
+                "client_id": "visitor-rejected-1",
+                "text": "Rejected text",
+            }
+        )
         rejected = websocket.receive_json()
 
     assert rejected["type"] == "error"
     assert rejected["code"] == "moderation_rejected"
+    assert rejected["client_id"] == "visitor-rejected-1"
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(KnockMessage)) == 0
 
@@ -297,12 +304,26 @@ def test_belong_message_is_immediate_and_queued_for_background_check(
 
     assert published["type"] == "message"
     assert published["message"]["author_rank"] == "BELONG"
+    assert published["message"]["moderation_status"] == "post_pending"
     assert fake_ai.moderation_calls == 0
     with SessionLocal() as db:
         job = db.scalar(select(AIJob))
         assert job is not None
         assert job.status == "pending"
         assert job.payload["knock_message_id"] == published["message"]["id"]
+
+    pending_status = client.get(
+        "/api/knock/moderation-status",
+        params={"message_ids": published["message"]["id"]},
+        headers={"Authorization": f"Bearer {belong_user.token}"},
+    )
+    assert pending_status.status_code == 200
+    assert pending_status.json()["messages"] == [
+        {
+            "id": published["message"]["id"],
+            "moderation_status": "post_pending",
+        }
+    ]
 
     fake_ai.moderation = ModerationDecision(
         approved=False,
@@ -316,12 +337,82 @@ def test_belong_message_is_immediate_and_queued_for_background_check(
         assert saved is not None
         assert saved.moderation_status == "flagged"
 
+    flagged_status = client.get(
+        "/api/knock/moderation-status",
+        params={"message_ids": published["message"]["id"]},
+        headers={"Authorization": f"Bearer {belong_user.token}"},
+    )
+    assert flagged_status.status_code == 200
+    assert flagged_status.json()["messages"][0]["moderation_status"] == "flagged"
+
     history = client.get(
         f"/api/knock/history?place_id={place_id}",
         headers={"Authorization": f"Bearer {belong_user.token}"},
     )
     assert history.status_code == 200
     assert history.json()["messages"] == []
+
+
+def test_belong_message_background_approval_updates_status_and_history(
+    client: TestClient, fake_ai: FakeKnockAI
+) -> None:
+    place_id = create_place("Approved Lounge", 2402)
+    belong_user = create_present_user(
+        "0500001402", "Approved User", [place_id], rank="BELONG"
+    )
+
+    with client.websocket_connect(websocket_path(belong_user)) as websocket:
+        assert_ready(websocket)
+        websocket.send_json({"type": "message", "text": "Safe message"})
+        published = websocket.receive_json()["message"]
+
+    assert published["moderation_status"] == "post_pending"
+    assert asyncio.run(process_next_job(fake_ai)) is True
+
+    status = client.get(
+        "/api/knock/moderation-status",
+        params={"message_ids": published["id"]},
+        headers={"Authorization": f"Bearer {belong_user.token}"},
+    )
+    assert status.status_code == 200
+    assert status.json()["messages"] == [
+        {"id": published["id"], "moderation_status": "approved"}
+    ]
+
+    history = client.get(
+        f"/api/knock/history?place_id={place_id}",
+        headers={"Authorization": f"Bearer {belong_user.token}"},
+    )
+    assert history.status_code == 200
+    assert history.json()["messages"][0]["text"] == "Safe message"
+    assert history.json()["messages"][0]["moderation_status"] == "approved"
+
+
+@pytest.mark.security
+def test_moderation_status_is_isolated_to_current_places(
+    client: TestClient, fake_ai: FakeKnockAI
+) -> None:
+    sender_place = create_place("Sender Place", 2403)
+    viewer_place = create_place("Viewer Place", 2404)
+    sender = create_present_user(
+        "0500001403", "Background Sender", [sender_place], rank="BELONG"
+    )
+    viewer = create_present_user(
+        "0500001404", "Other Viewer", [viewer_place]
+    )
+
+    with client.websocket_connect(websocket_path(sender)) as websocket:
+        assert_ready(websocket)
+        websocket.send_json({"type": "message", "text": "Other place"})
+        message_id = websocket.receive_json()["message"]["id"]
+
+    status = client.get(
+        "/api/knock/moderation-status",
+        params={"message_ids": message_id},
+        headers={"Authorization": f"Bearer {viewer.token}"},
+    )
+    assert status.status_code == 200
+    assert status.json()["messages"] == []
 
 
 @pytest.mark.security
