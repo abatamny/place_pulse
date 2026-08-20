@@ -1,6 +1,6 @@
 # Automatic Azure deployment
 
-The CI workflow can update the existing course Azure VM after all backend tests, the frontend build, and the fresh Compose startup job pass. It never creates a VM during CI and it never deploys pull requests.
+The CI workflow can update the existing course Azure VM after the backend tests, frontend build, local-AI contract tests, and fresh Compose startup all pass. It never creates a VM during CI and it never deploys pull requests.
 
 ## Deployment behavior
 
@@ -35,6 +35,6 @@ The federated credential must target the `azure-production` environment because 
 
 ## Using and disabling deployment
 
-Push to `main` normally. The `Deploy to Azure VM` job starts only after all three CI jobs succeed. You may also use **Run workflow** on `main` to rerun tests and deploy the selected commit.
+Push to `main` normally. The `Deploy to Azure VM` job starts only after all four required CI jobs succeed. You may also use **Run workflow** on `main` to rerun tests and deploy the selected commit.
 
 Set `AZURE_DEPLOY_ENABLED` to `false` before deleting or pausing the VM. A missing VM, missing OIDC configuration, or unhealthy application makes only the deployment job fail; it does not modify the local development stack.

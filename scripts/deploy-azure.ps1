@@ -47,7 +47,7 @@ $environmentContent = (Get-Content -Raw -LiteralPath $resolvedEnvironment).TrimE
 if (-not $environmentContent) {
     throw 'The Azure environment file cannot be empty.'
 }
-$environmentContent += "`nAPP_PORT=80`nAPP_ENV=production`n"
+$environmentContent += "`nAPP_PORT=80`n"
 $environmentBase64 = [Convert]::ToBase64String(
     [Text.Encoding]::UTF8.GetBytes($environmentContent)
 )

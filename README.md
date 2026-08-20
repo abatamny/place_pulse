@@ -14,6 +14,22 @@ PlacePulse is a mobile-first course project for interacting with people and cont
 
 No local Node.js, Python, PostgreSQL, or PostGIS installation is required.
 
+### VM specifications
+
+For a single VM running the complete Compose stack (PostGIS, backend, worker,
+Nginx, the three local AI models, and regional Overpass), use:
+
+- **Minimum supported course/demo VM:** 2 vCPUs, 8 GiB RAM, and 40 GiB SSD storage.
+- **Operating system:** Ubuntu 24.04 LTS x64, or a comparable current Linux
+  distribution with Docker Engine and Docker Compose v2.
+
+Size the VM for first initialization rather than idle usage. During a measured
+regional Overpass import, a 4 GiB VM filled its RAM and used as much as 3.7 GiB
+of swap while the other services were running. Eight GiB of physical RAM is
+therefore the supported minimum; persistent swap remains a safety margin rather
+than a substitute for that RAM. Allow inbound TCP 22 for SSH and 80/443 for the
+application; database, AI, and Overpass ports stay internal to Docker.
+
 ## Start the application
 
 From the repository root, run:
@@ -26,54 +42,78 @@ Open <http://localhost:8080>. The backend health endpoint is available through t
 
 This one command builds the React frontend, FastAPI backend, and local AI service; starts PostGIS; initializes the regional Overpass database; creates the application schema automatically; starts the background worker; and starts Nginx. The first start downloads the configured Hugging Face model weights and the Israel and Palestine Geofabrik extract. Model weights persist in `ai_models`, while the imported Overpass index persists in `overpass_data`. Initial indexing and area generation can take substantially longer than an ordinary restart. Only Nginx is exposed on the host; the backend, worker, database, local AI service, and Overpass remain on the internal Compose network.
 
-## Configuration
+## Local configuration
 
-The defaults work without creating an `.env` file. To change them, copy `.env.example` to `.env` and edit:
+Nothing must be set in `.env` for local development. The Compose defaults use port `8080`, demo verification codes, the internal Overpass service, the bundled local AI service, and a local `placepulse` database. No API key is required for that default path.
+
+Create `.env` only when you want to override a default:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+On macOS or Linux, use `cp .env.example .env`. Docker Compose reads the root `.env` file automatically. After changing it, run `docker compose up -d` to recreate affected containers. Never commit `.env`; it is ignored by Git.
+
+### General and infrastructure variables
+
+| Variable | Default | When to set it |
+|---|---|---|
+| `APP_PORT` | `8080` | Change the host port used to open the app. |
+| `VERIFICATION_SECRET` | local development value | Set a long random value whenever the app is accessible beyond your own localhost. |
+| `OSM_USER_AGENT` | `PlacePulse-Course-Project/0.1` | Override the identifier used for OpenStreetMap requests. |
+| `OVERPASS_URL` | `http://overpass/api` | Keep the Docker-internal URL unless deliberately connecting the backend to another Overpass service. |
+| `OVERPASS_PLANET_URL` | Israel and Palestine Geofabrik PBF | Override the extract downloaded when the Overpass volume is initialized. |
+| `OVERPASS_TIMEOUT_SECONDS` | `20` | Change the heartbeat lookup and query timeout. |
+| `MAX_REQUEST_BODY_BYTES` | `11534336` (11 MiB) | Change the backend-wide request cap. It must leave multipart overhead above the 10 MiB DIG limit. |
+| `MAX_CONCURRENT_HTTP_REQUESTS` | `50` | Change the per-backend in-flight HTTP limit. |
+| `MAX_WEBSOCKET_CONNECTIONS` | `100` | Change the per-backend WebSocket limit. |
+| `POSTGRES_DB` | `placepulse` | Override the local database name before the first database start. |
+| `POSTGRES_USER` | `placepulse` | Override the local database user before the first database start. |
+| `POSTGRES_PASSWORD` | `placepulse` | Override the local password before the first database start; use a strong value outside localhost. |
+
+PostgreSQL initialization values are applied only when its data volume is first created. Changing them later requires updating the existing database credentials or resetting the local volumes as described below.
+
+### AI variables
+
+The default `AI_PROVIDER=local` path uses these settings and ignores the external-provider block:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `APP_PORT` | `8080` | Public application port |
-| `APP_ENV` | `development` | Runtime environment label |
-| `VERIFICATION_SECRET` | local development value | Hashes temporary verification codes; change it outside localhost |
-| `SMS_PROVIDER` | empty | Leave empty to show a demo code, or set to `twilio` to send SMS |
-| `TWILIO_ACCOUNT_SID` | empty | Twilio account identifier, required when `SMS_PROVIDER=twilio` |
-| `TWILIO_AUTH_TOKEN` | empty | Twilio API credential, required when `SMS_PROVIDER=twilio` |
-| `TWILIO_FROM_NUMBER` | empty | Message-capable Twilio sender number in international format |
-| `SMS_TIMEOUT_SECONDS` | `8` | Maximum wait for SMS delivery acceptance |
-| `OSM_USER_AGENT` | `PlacePulse-Course-Project/0.1` | Identifies backend requests to OpenStreetMap services |
-| `OVERPASS_URL` | `http://overpass/api` | Docker-internal containing-place and boundary endpoint |
-| `OVERPASS_PLANET_URL` | Israel and Palestine Geofabrik PBF | Regional extract downloaded on first Overpass initialization |
-| `OVERPASS_TIMEOUT_SECONDS` | `20` | Shared HTTP and Overpass-query timeout for one heartbeat lookup |
-| `AI_PROVIDER` | `local` | Use the internal local service; `openai` and `openai-compatible` remain available as fallbacks |
-| `AI_LOCAL_URL` | `http://local-ai:8081` | Docker-internal inference service URL |
-| `TEXT_SAFETY_MODEL_ID` | `Qwen/Qwen3Guard-Gen-0.6B` | Local text-safety model |
-| `ROUTER_MODEL_ID` | `Qwen/Qwen3-0.6B` | Local semantic text-routing model |
-| `IMAGE_SAFETY_MODEL_ID` | `OwenElliott/image-safety-classifier-s` | Local NSFW/NSFL image classifier |
-| `LOCAL_AI_DEVICE` | `auto` | Select CPU automatically in the default image |
-| `LOCAL_AI_MAX_CONCURRENT_INFERENCES` | `1` | Bounds concurrent model executions and memory spikes |
-| `IMAGE_UNSAFE_THRESHOLD` | `0.5` | Reject an NSFW or NSFL class at or above this probability |
-| `AI_API_URL` | OpenAI Responses API | Structured-output endpoint |
-| `AI_API_FORMAT` | `responses` | `responses` for native OpenAI or `chat_completions` for compatible JSON-mode providers |
-| `AI_API_KEY` | empty | Provider API key; required only when an AI operation is used |
-| `AI_MODEL` | `gpt-4.1-mini` | Model used for moderation |
-| `AI_MODERATION_URL` | OpenAI Moderations API | Image-moderation endpoint |
-| `AI_MODERATION_MODEL` | `omni-moderation-latest` | Model used for DIG image and video-frame moderation |
-| `AI_MEDIA_MODERATION_MODE` | `moderations` | Use the moderation endpoint, or `model` to moderate media with a multimodal chat model |
-| `AI_TIMEOUT_SECONDS` | `30` | Maximum wait for a local or external model decision |
-| `MAX_REQUEST_BODY_BYTES` | `11534336` (11 MiB) | Backend-wide request cap, including multipart overhead for a 10 MiB DIG |
-| `MAX_CONCURRENT_HTTP_REQUESTS` | `50` | Per-backend in-flight HTTP admission limit |
-| `MAX_WEBSOCKET_CONNECTIONS` | `100` | Per-backend WebSocket admission limit |
-| `POSTGRES_DB` | `placepulse` | PostgreSQL database name |
-| `POSTGRES_USER` | `placepulse` | PostgreSQL user |
-| `POSTGRES_PASSWORD` | `placepulse` | Local PostgreSQL password |
+| `AI_PROVIDER` | `local` | Select `local`, `openai`, or `openai-compatible`. |
+| `AI_LOCAL_URL` | `http://local-ai:8081` | Docker-internal local inference URL. |
+| `AI_TIMEOUT_SECONDS` | `30` | Maximum wait for a local or external model decision. |
+| `TEXT_SAFETY_MODEL_ID` | `Qwen/Qwen3Guard-Gen-0.6B` | Local text-safety model. |
+| `ROUTER_MODEL_ID` | `Qwen/Qwen3-0.6B` | Local semantic text-routing model. |
+| `IMAGE_SAFETY_MODEL_ID` | `OwenElliott/image-safety-classifier-s` | Local image-safety model. |
+| `LOCAL_AI_DEVICE` | `auto` | Select the inference device; the default image automatically uses CPU. |
+| `LOCAL_AI_MAX_CONCURRENT_INFERENCES` | `1` | Bound simultaneous model executions and memory use. |
+| `IMAGE_UNSAFE_THRESHOLD` | `0.5` | Reject an NSFW or NSFL class at or above this probability. |
 
-Do not commit `.env`; it is ignored by Git.
+Set the following only when `AI_PROVIDER=openai` or `AI_PROVIDER=openai-compatible`:
 
-## Abuse and overload protection
+| Variable | Default | Purpose |
+|---|---|---|
+| `AI_API_URL` | OpenAI Responses API | Structured-output or compatible chat-completions endpoint. |
+| `AI_API_FORMAT` | `responses` | Use `responses` for OpenAI or `chat_completions` for a compatible JSON-mode provider. |
+| `AI_API_KEY` | empty | Required credential for an external provider. |
+| `AI_MODEL` | `gpt-4.1-mini` | Text moderation and routing model. |
+| `AI_MODERATION_URL` | OpenAI Moderations API | Used for media only when `AI_MEDIA_MODERATION_MODE=moderations`. |
+| `AI_MODERATION_MODEL` | `omni-moderation-latest` | Media moderation model. |
+| `AI_MEDIA_MODERATION_MODE` | `moderations` | Use the moderation endpoint, or `model` for a multimodal compatible model. |
 
-All request models reject unexpected fields, bound text and numeric inputs, trim required text, and reject invalid control characters. Nginx and the backend independently cap request bodies at 11 MiB; DIG validation then enforces the stricter 10 MiB file limit, allow-listed formats, decoded dimensions, and video duration.
+### Optional SMS variables
 
-Authentication and write-heavy features use sliding-window rate limits, including KNOCK limits that remain in effect when a client reconnects. Nginx also bounds per-IP request bursts and connections. The backend admits at most 50 concurrent HTTP requests and 100 WebSockets by default, returning a retryable `503` or WebSocket `1013` instead of accepting unbounded work. Uvicorn adds a final connection/backlog and 64 KiB WebSocket-frame cap. These are intentionally single-instance, course-deployment safeguards rather than distributed production controls.
+Leave `SMS_PROVIDER` empty for the local demo-code flow. Real SMS delivery requires all three Twilio credentials:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SMS_PROVIDER` | empty | Set to `twilio` to send verification codes. |
+| `TWILIO_ACCOUNT_SID` | empty | Twilio account identifier. |
+| `TWILIO_AUTH_TOKEN` | empty | Twilio API credential. |
+| `TWILIO_FROM_NUMBER` | empty | Message-capable Twilio sender in international format. |
+| `SMS_TIMEOUT_SECONDS` | `8` | Maximum wait for SMS delivery acceptance. |
+
+### Twilio example
 
 When no SMS provider is configured, registration returns the six-digit code and
 the frontend labels it as a demo code. To send real verification messages with
@@ -90,6 +130,8 @@ SMS_TIMEOUT_SECONDS=8
 Users must register with an international phone number such as `+972...` when
 real SMS delivery is enabled. If Twilio is configured but incomplete or rejects
 a message, registration fails safely instead of exposing the verification code.
+
+### External AI example
 
 For an OpenAI-compatible Alibaba Model Studio workspace using `qwen3.7-plus`, use the workspace URL from its credential export and this shape in your private `.env`:
 
@@ -111,6 +153,12 @@ On PowerShell, a two-column Alibaba credential export can be imported without pr
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/configure-ai-provider.ps1 -CredentialFile "C:\path\to\api-key.csv" -Model "qwen3.7-plus"
 ```
+
+## Abuse and overload protection
+
+All request models reject unexpected fields, bound text and numeric inputs, trim required text, and reject invalid control characters. Nginx and the backend independently cap request bodies at 11 MiB; DIG validation then enforces the stricter 10 MiB file limit, allow-listed formats, decoded dimensions, and video duration.
+
+Authentication and write-heavy features use sliding-window rate limits, including KNOCK limits that remain in effect when a client reconnects. Nginx also bounds per-IP request bursts and connections. The backend admits at most 50 concurrent HTTP requests and 100 WebSockets by default, returning a retryable `503` or WebSocket `1013` instead of accepting unbounded work. Uvicorn adds a final connection/backlog and 64 KiB WebSocket-frame cap. These are intentionally single-instance, course-deployment safeguards rather than distributed production controls.
 
 ## Local authentication flow
 
@@ -230,7 +278,7 @@ The following PowerShell command creates an isolated Compose project on port `18
 powershell -ExecutionPolicy Bypass -File scripts/fresh-start-test.ps1
 ```
 
-It does not reset the normal `place_pulse` Compose project or its saved data. GitHub Actions repeats the backend tests, frontend production build, and fresh four-service startup on every push and pull request. An enabled Azure deployment runs afterward only for `main`.
+It does not reset the normal `place_pulse` Compose project or its saved data. GitHub Actions repeats the backend tests, frontend production build, local-AI contract tests, and fresh four-service startup on every push and pull request. An enabled Azure deployment runs afterward only for `main`.
 
 ## Startup smoke test
 
@@ -251,7 +299,7 @@ Prerequisites:
 - Azure CLI, signed in with `az login` and set to the intended subscription
 - An SSH public key
 - The repository available from the public GitHub URL, with the target branch pushed
-- A private environment file outside the repository containing strong `VERIFICATION_SECRET` and `POSTGRES_PASSWORD` values plus the AI provider configuration and optional Twilio settings
+- A private environment file outside the repository containing strong `VERIFICATION_SECRET` and `POSTGRES_PASSWORD` values, plus external AI or Twilio settings only if those services are used
 
 Deploy from PowerShell:
 
@@ -264,9 +312,35 @@ powershell -ExecutionPolicy Bypass -File scripts/deploy-azure.ps1 `
   -EnvironmentFile "C:\private\placepulse-azure.env"
 ```
 
+For the default local AI and demo verification flow, the private deployment file needs only:
+
+```dotenv
+VERIFICATION_SECRET=replace-with-a-long-random-value
+POSTGRES_PASSWORD=replace-with-a-strong-database-password
+```
+
+Add the external AI variables from the configuration section only when using an external provider, and add the Twilio block only when sending real SMS messages. The deployment script always adds `APP_PORT=80`; do not put `APP_PORT` in this input file.
+
 The environment file is base64-encoded into VM custom data during provisioning and installed as `/opt/placepulse/.env` with root-only permissions. For a course demo, use a dedicated low-value AI key rather than reusing an important production credential. The helper validates repository/branch inputs, starts Compose through cloud-init, prints the public IP, and deletes its temporary rendered cloud-init file.
 
 After the VM is provisioned, GitHub Actions can automatically deploy the exact tested `main` commit through Azure VM Run Command. The job uses short-lived OIDC authentication and stays disabled until its GitHub variables and environment secrets are configured. Follow [the automatic Azure deployment setup](docs/azure-auto-deploy.md).
+
+### GitHub Actions deployment configuration
+
+Create a GitHub environment named exactly `azure-production`, because both the workflow and the Azure federated credential use that environment name. Configure these values:
+
+| GitHub location | Name | Value |
+|---|---|---|
+| Repository variable | `AZURE_DEPLOY_ENABLED` | `true` to enable deployment; use `false` to disable it. |
+| Repository variable | `AZURE_RESOURCE_GROUP` | The resource group passed to `deploy-azure.ps1`. |
+| Repository variable | `AZURE_VM_NAME` | The VM name passed to `deploy-azure.ps1`. |
+| `azure-production` environment secret | `AZURE_CLIENT_ID` | Microsoft Entra application (client) ID. |
+| `azure-production` environment secret | `AZURE_TENANT_ID` | Microsoft Entra directory (tenant) ID. |
+| `azure-production` environment secret | `AZURE_SUBSCRIPTION_ID` | Azure subscription ID containing the VM. |
+
+Add repository variables under **Settings > Secrets and variables > Actions > Variables**. Add the three secrets under **Settings > Environments > azure-production > Environment secrets**. Do not add an `AZURE_CLIENT_SECRET`; the workflow uses GitHub OIDC instead.
+
+One-time Azure setup is also required: create a federated credential for organization `abatamny`, repository `place_pulse`, entity type **Environment**, and environment `azure-production`; then grant that service principal **Virtual Machine Contributor** on this VM only. The [automatic deployment guide](docs/azure-auto-deploy.md) contains the full sequence. The VM's application secrets and AI keys remain in `/opt/placepulse/.env`; they are not GitHub Actions variables, and deployments preserve that file.
 
 When the demo is finished, remove the Azure resource group from the portal or with `az group delete --name placepulse-course-rg`. This permanently deletes the VM and its stored database/media volumes.
 

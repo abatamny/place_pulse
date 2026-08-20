@@ -7,7 +7,6 @@ from sqlalchemy import URL
 
 @dataclass(frozen=True)
 class Settings:
-    app_env: str = os.getenv("APP_ENV", "development")
     verification_secret: str = os.getenv(
         "VERIFICATION_SECRET", "local-development-secret"
     )
