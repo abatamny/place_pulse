@@ -6,6 +6,36 @@ Repository: <https://github.com/abatamny/place_pulse>
 
 PlacePulse is a mobile-first course project for interacting with people and content connected to a physical place. The project currently includes authentication, place/presence tracking, AI-backed moderation, live place-scoped KNOCK messages, temporary DIG media, permanent Explore memories, place forums, and private direct messages.
 
+## Contents
+
+- [Requirements](#requirements)
+  - [VM specifications](#vm-specifications)
+- [Start the application](#start-the-application)
+- [Local configuration](#local-configuration)
+  - [General and infrastructure variables](#general-and-infrastructure-variables)
+  - [AI variables](#ai-variables)
+  - [Optional SMS variables](#optional-sms-variables)
+  - [Twilio example](#twilio-example)
+  - [External AI example](#external-ai-example)
+- [Abuse and overload protection](#abuse-and-overload-protection)
+- [Local authentication flow](#local-authentication-flow)
+- [Location and presence flow](#location-and-presence-flow)
+  - [Local Overpass initialization](#local-overpass-initialization)
+- [KNOCK live messages](#knock-live-messages)
+- [DIG temporary media](#dig-temporary-media)
+- [Explore place memories](#explore-place-memories)
+- [Place forum and personal area](#place-forum-and-personal-area)
+- [Direct messages](#direct-messages)
+- [AI moderation and worker](#ai-moderation-and-worker)
+  - [Jailbreak and hallucination robustness](#jailbreak-and-hallucination-robustness)
+- [Automated tests](#automated-tests)
+- [Fresh-install verification](#fresh-install-verification)
+- [Startup smoke test](#startup-smoke-test)
+- [Optional Azure VM deployment](#optional-azure-vm-deployment)
+  - [GitHub Actions deployment configuration](#github-actions-deployment-configuration)
+- [Final project documents](#final-project-documents)
+- [Useful commands](#useful-commands)
+
 ## Requirements
 
 - Docker Desktop, or Docker Engine with Docker Compose v2
