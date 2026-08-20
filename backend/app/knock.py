@@ -49,6 +49,11 @@ MESSAGES_PER_MINUTE = 20
 BROADCAST_POLL_SECONDS = 0.3
 BROADCAST_BATCH_LIMIT = 50
 
+# A KNOCK message sits in "routing" only while an AI call is choosing among
+# more than one of the sender's current scopes; "pending" covers the safety
+# check that follows (or starts immediately when there's nothing to route).
+IN_PROGRESS_STATUSES = ("routing", "pending")
+
 DENY_MESSAGES = {
     "routing_failed": "The KNOCK could not be routed to a current place. Try again.",
     "moderation_rejected": "The KNOCK did not pass the safety check.",
@@ -252,6 +257,7 @@ def save_pending_message(
     place: ActivePlace,
     text: str,
     client_id: str | None,
+    needs_routing: bool,
 ) -> KnockMessage | None:
     cutoff = utc_now() - PRESENCE_TTL
     with SessionLocal.begin() as db:
@@ -283,7 +289,7 @@ def save_pending_message(
             user_id=user_id,
             text=text,
             author_rank=current_rank,
-            moderation_status="pending",
+            moderation_status="routing" if needs_routing else "pending",
             client_id=client_id,
         )
         db.add(message)
@@ -296,7 +302,7 @@ def save_pending_message(
 def _deny_knock_message(message_id: int, code: str) -> None:
     with SessionLocal.begin() as db:
         message = db.get(KnockMessage, message_id)
-        if message is not None and message.moderation_status == "pending":
+        if message is not None and message.moderation_status in IN_PROGRESS_STATUSES:
             message.moderation_status = "denied"
             message.deny_code = code
             message.decided_at = utc_now()
@@ -348,7 +354,7 @@ async def apply_knock_check(payload: dict, adapter: AIAdapter) -> None:
 
     with SessionLocal() as db:
         message = db.get(KnockMessage, message_id)
-        if message is None or message.moderation_status != "pending":
+        if message is None or message.moderation_status not in IN_PROGRESS_STATUSES:
             return
         text = message.text
 
@@ -391,7 +397,7 @@ async def apply_knock_check(payload: dict, adapter: AIAdapter) -> None:
 
     with SessionLocal.begin() as db:
         message = db.get(KnockMessage, message_id)
-        if message is None or message.moderation_status != "pending":
+        if message is None or message.moderation_status not in IN_PROGRESS_STATUSES:
             return
         message.place_id = target_place_id
         message.origin_place_id = origin_place_id
@@ -411,6 +417,9 @@ async def apply_knock_check(payload: dict, adapter: AIAdapter) -> None:
                     attempts=0,
                 )
             )
+        else:
+            # Routing (if any) is resolved; the safety check is next.
+            message.moderation_status = "pending"
 
     if author_rank == "BELONG":
         return
@@ -543,6 +552,7 @@ async def publish_message(
         place=active_places[-1],
         text=text,
         client_id=client_id,
+        needs_routing=len(active_places) > 1,
     )
     if pending is None:
         await send_error(
@@ -684,7 +694,7 @@ def knock_history(
                         ("approved", "post_pending")
                     ),
                     and_(
-                        KnockMessage.moderation_status == "pending",
+                        KnockMessage.moderation_status.in_(IN_PROGRESS_STATUSES),
                         KnockMessage.user_id == auth.user.id,
                     ),
                     and_(

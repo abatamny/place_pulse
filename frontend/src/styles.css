@@ -3248,6 +3248,30 @@ button:focus-visible {
   animation: pending-blink 1.3s ease-in-out infinite;
 }
 
+.routing-status {
+  display: inline-flex;
+  width: max-content;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.42rem;
+  border-radius: 999px;
+  background: #d9e6f5;
+  color: #234a72 !important;
+  font-size: 0.64rem !important;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.routing-status::before {
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: #3d6ea5;
+  content: "";
+  animation: pending-blink 1.3s ease-in-out infinite;
+}
+
 .background-check-status {
   display: inline-flex;
   width: max-content;
@@ -3755,6 +3779,7 @@ button:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .pending-status::before,
+  .routing-status::before,
   .background-check-status::before {
     animation: none;
   }

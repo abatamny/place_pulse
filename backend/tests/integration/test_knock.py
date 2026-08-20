@@ -371,6 +371,45 @@ def test_visitor_pending_message_survives_history_reload_and_stays_private(
     assert published["message"]["moderation_status"] == "approved"
 
 
+def test_message_shows_routing_status_before_the_safety_check_starts(
+    client: TestClient, fake_ai: FakeKnockAI
+) -> None:
+    campus_id = create_place("Routing Status Campus", 2320)
+    building_id = create_place(
+        "Routing Status Building", 2321, parent_place_id=campus_id
+    )
+    sender = create_present_user(
+        "0500001320", "Routing Status Sender", [campus_id, building_id]
+    )
+    fake_ai.routing_started = threading.Event()
+    fake_ai.routing_release = threading.Event()
+
+    with client.websocket_connect(websocket_path(sender)) as websocket:
+        assert_ready(websocket)
+        send_message(websocket, "Which room is this for?")
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            job_future = executor.submit(run_knock_check, fake_ai)
+            assert fake_ai.routing_started.wait(2)
+
+            sender_history = client.get(
+                "/api/knock/history",
+                headers={"Authorization": f"Bearer {sender.token}"},
+            )
+            assert sender_history.status_code == 200
+            assert sender_history.json()["messages"][0]["moderation_status"] == "routing"
+
+            fake_ai.routing_release.set()
+            assert job_future.result(timeout=5) is True
+
+        published = websocket.receive_json()
+
+    assert published["type"] == "message"
+    assert published["message"]["moderation_status"] == "approved"
+    assert fake_ai.routing_calls == 1
+    assert fake_ai.moderation_calls == 1
+
+
 def test_belong_message_is_immediate_and_queued_for_background_check(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:

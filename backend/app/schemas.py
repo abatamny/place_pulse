@@ -150,7 +150,7 @@ class KnockMessageResponse(BaseModel):
     nickname: str
     author_rank: str
     moderation_status: Literal[
-        "pending", "approved", "post_pending", "flagged", "denied"
+        "routing", "pending", "approved", "post_pending", "flagged", "denied"
     ]
     text: str
     created_at: datetime
@@ -164,7 +164,7 @@ class KnockHistoryResponse(BaseModel):
 class KnockModerationStatus(BaseModel):
     id: int
     moderation_status: Literal[
-        "pending", "approved", "post_pending", "flagged", "denied"
+        "routing", "pending", "approved", "post_pending", "flagged", "denied"
     ]
 
 
