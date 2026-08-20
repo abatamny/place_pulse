@@ -3426,12 +3426,12 @@ function App() {
               <h2>Verify your phone</h2>
               <p className="form-copy">
                 {demoCode
-                  ? `Use the demo code shown below for ${pendingPhone}.`
+                  ? `Use the code shown below for ${pendingPhone}. It is displayed here because no SMS provider is configured.`
                   : `Code sent by SMS to ${pendingPhone}.`}
               </p>
               {demoCode && (
                 <p className="development-code">
-                  Demo verification code: <strong>{demoCode}</strong>
+                  Verification code: <strong>{demoCode}</strong>
                 </p>
               )}
               <label>
