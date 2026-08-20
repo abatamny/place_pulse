@@ -74,6 +74,7 @@ services:
 
   backend:
     image: placepulse-backend
+    pull_policy: build
     build:
       context: ./backend
     environment:
@@ -123,6 +124,9 @@ services:
 
   worker:
     image: placepulse-backend
+    pull_policy: build
+    build:
+      context: ./backend
     command: ["python", "-m", "app.worker"]
     environment:
       AI_PROVIDER: ${AI_PROVIDER:-local}
