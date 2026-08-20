@@ -199,6 +199,14 @@ type PendingForumPost = ForumPost & {
   pending: true;
 };
 
+type PendingForumComment = {
+  id: number;
+  text: string;
+  created_at: string;
+  media_name: string | null;
+  status: "checking" | "rejected";
+};
+
 type PendingKnock = {
   id: number;
   client_id: string;
@@ -1203,18 +1211,20 @@ function KnockPanel({
 
       {error && <p className="knock-error">{error}</p>}
       <form className="knock-composer" onSubmit={sendKnock}>
-        <label htmlFor="knock-message">Send a KNOCK</label>
-        <textarea
-          id="knock-message"
-          maxLength={500}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={submitTextOnEnter}
-          placeholder="What is happening here?"
-          rows={3}
-          value={draft}
-        />
-        <div className="composer-footer">
+        <div className="composer-meta">
+          <label htmlFor="knock-message">Send a KNOCK</label>
           <small>{draft.length}/500</small>
+        </div>
+        <div className="composer-row">
+          <textarea
+            id="knock-message"
+            maxLength={500}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={submitTextOnEnter}
+            placeholder="What is happening here?"
+            rows={1}
+            value={draft}
+          />
           <button
             className="button"
             disabled={connection !== "connected" || !draft.trim()}
@@ -2074,8 +2084,11 @@ function ForumPostCard({
   token: string;
   onChanged: () => void;
 }) {
+  const pendingCommentIdRef = useRef(-1);
   const [comment, setComment] = useState("");
   const [commentFile, setCommentFile] = useState<File | null>(null);
+  const [pendingComments, setPendingComments] = useState<PendingForumComment[]>([]);
+  const [approvedComments, setApprovedComments] = useState<ForumComment[]>([]);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState("");
@@ -2108,6 +2121,20 @@ function ForumPostCard({
     if (!text) {
       return;
     }
+    const pendingId = pendingCommentIdRef.current--;
+    setPendingComments((current) => [
+      ...current,
+      {
+        id: pendingId,
+        text,
+        created_at: new Date().toISOString(),
+        media_name: commentFile?.name ?? null,
+        status: "checking",
+      },
+    ]);
+    setComment("");
+    setCommentFile(null);
+    formElement.reset();
     setBusy(true);
     setError("");
     try {
@@ -2119,23 +2146,33 @@ function ForumPostCard({
             return form;
           })()
         : JSON.stringify({ text });
-      await apiRequest<ForumComment>(
+      const published = await apiRequest<ForumComment>(
         commentFile
           ? `/api/forum/posts/${post.id}/comments/with-media`
           : `/api/forum/posts/${post.id}/comments`,
         { method: "POST", body },
         token,
       );
-      setComment("");
-      setCommentFile(null);
-      formElement.reset();
+      setPendingComments((current) => current.filter((item) => item.id !== pendingId));
+      setApprovedComments((current) => [...current, published]);
       onChanged();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not add comment");
+      setPendingComments((current) =>
+        current.map((item) =>
+          item.id === pendingId ? { ...item, status: "rejected" } : item,
+        ),
+      );
+      setError(caught instanceof Error ? caught.message : "Comment was not published");
     } finally {
       setBusy(false);
     }
   }
+
+  const serverCommentIds = new Set(post.comments.map((item) => item.id));
+  const visibleComments = [
+    ...post.comments,
+    ...approvedComments.filter((item) => !serverCommentIds.has(item.id)),
+  ];
 
   return (
     <>
@@ -2155,7 +2192,10 @@ function ForumPostCard({
           </span>
           <span className="forum-summary-side">
             <span className="score-pill">{post.score} score</span>
-            <span><Icon name="messages" size={15} /> {post.comments.length} comments</span>
+            <span>
+              <Icon name="messages" size={15} />{" "}
+              {visibleComments.length + pendingComments.length} comments
+            </span>
             <time dateTime={post.created_at}>
               {new Date(post.created_at).toLocaleDateString()}
             </time>
@@ -2213,7 +2253,7 @@ function ForumPostCard({
               </button>
             </div>
             <div className="forum-comments">
-              {post.comments.map((item) => (
+              {visibleComments.map((item) => (
                 <div className="forum-comment" key={item.id}>
                   <strong>{item.nickname}</strong>
                   <p>{item.text}</p>
@@ -2225,7 +2265,32 @@ function ForumPostCard({
                   </time>
                 </div>
               ))}
-              {post.comments.length === 0 && <p className="forum-no-comments">No comments yet.</p>}
+              {pendingComments.map((item) => (
+                <div
+                  className={`forum-comment forum-comment--optimistic ${item.status === "rejected" ? "moderation-rejected" : "moderation-pending"}`}
+                  key={item.id}
+                >
+                  <div className="forum-comment-pending-heading">
+                    <strong>You</strong>
+                    <span className={item.status === "rejected" ? "rejected-status" : "pending-status"}>
+                      {item.status === "rejected" ? "Not published" : "Checking"}
+                    </span>
+                  </div>
+                  <p>{item.text}</p>
+                  {item.media_name && <small>Media: {item.media_name}</small>}
+                  <time dateTime={item.created_at}>
+                    {new Date(item.created_at).toLocaleString()}
+                  </time>
+                  <small className={item.status === "rejected" ? "forum-comment-rejected-note" : "pending-explanation"}>
+                    {item.status === "rejected"
+                      ? "This comment was not published because it did not pass the safety check."
+                      : "Checking the comment and media before publishing. Visible only to you."}
+                  </small>
+                </div>
+              ))}
+              {visibleComments.length === 0 && pendingComments.length === 0 && (
+                <p className="forum-no-comments">No comments yet.</p>
+              )}
             </div>
             {error && <p className="knock-error">{error}</p>}
             <form className="forum-comment-form" onSubmit={submitComment}>

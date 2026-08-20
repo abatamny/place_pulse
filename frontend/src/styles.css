@@ -631,27 +631,46 @@ dd {
 }
 
 .knock-composer {
-  gap: 0.55rem;
-  padding: 1rem;
+  gap: 0.4rem;
+  padding: 0.75rem 0.8rem 0.8rem;
 }
 
-.knock-composer textarea {
-  resize: vertical;
-}
-
-.composer-footer {
+.composer-meta,
+.composer-row {
   display: flex;
   align-items: center;
+}
+
+.composer-meta {
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
-.composer-footer small {
+.composer-meta label {
+  display: block;
+  font-size: 0.78rem;
+}
+
+.composer-meta small {
   color: #61766f;
+  font-size: 0.72rem;
 }
 
-.composer-footer .button {
-  min-width: 7rem;
+.composer-row {
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.composer-row textarea {
+  min-height: 2.75rem;
+  max-height: 6.5rem;
+  flex: 1 1 auto;
+  resize: none;
+}
+
+.composer-row .button {
+  min-width: 6.5rem;
+  flex: 0 0 auto;
 }
 
 .knock-empty {
@@ -1096,6 +1115,32 @@ dd {
 .forum-comment + .forum-comment {
   padding-top: 0.65rem;
   border-top: 1px solid #e2ebe6;
+}
+
+.forum-comment--optimistic,
+.forum-comment + .forum-comment--optimistic {
+  gap: 0.3rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px dashed #c49b54;
+  border-radius: 0.65rem;
+}
+
+.forum-comment-pending-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.forum-comment--optimistic time {
+  color: #6e6657;
+  font-size: 0.68rem;
+}
+
+.forum-comment-rejected-note {
+  color: #832f28;
+  font-size: 0.67rem;
+  font-weight: 700;
 }
 
 .forum-comment-form {
@@ -2473,7 +2518,7 @@ button:focus-visible {
 }
 
 .knock-column .knock-card:not(.knock-empty) {
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .knock-column .knock-heading {
@@ -2501,16 +2546,10 @@ button:focus-visible {
 }
 
 .knock-column .knock-composer {
-  padding: 0.8rem;
+  padding: 0.65rem 0.7rem 0.7rem;
 }
 
-.knock-column .knock-composer textarea {
-  min-height: 3.8rem;
-  max-height: 7rem;
-  resize: vertical;
-}
-
-.knock-column .composer-footer .button {
+.knock-column .composer-row .button {
   min-width: 5.5rem;
 }
 
