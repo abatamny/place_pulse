@@ -295,11 +295,13 @@ The course-sized Azure path runs the same Docker Compose stack on one Ubuntu VM,
 
 Prerequisites:
 
-- An Ubuntu 24.04 Azure VM with a public IP or DNS name, with 8GiB RAM.
+- An Ubuntu 24.04 VM with a public IP or DNS name. For the complete stack with local AI, use a non-burstable **4-vCPU, 16 GiB RAM** VM with at least **80 GiB of fast SSD storage**. When an external AI provider is configured, **2 vCPUs and 8 GiB RAM** is a workable minimum.
 - Azure network rules allowing inbound TCP ports 22 and 80
 - An SSH user with `sudo` access
 - The repository available from the public GitHub URL, with the target branch pushed
 - A private `.env` containing strong `VERIFICATION_SECRET` and `POSTGRES_PASSWORD` values, plus external AI or Twilio settings only if those services are used
+
+Overpass initialization is largely single-core and disk intensive, so 8 vCPUs do not make the first import twice as fast as 4 vCPUs. Prefer sustained per-core CPU performance and fast SSD storage over a larger burstable core count.
 
 Connect to the new VM and install the application once:
 

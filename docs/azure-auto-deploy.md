@@ -14,7 +14,7 @@ The CI workflow updates an existing course Azure VM over SSH after the backend t
 
 ## Prepare the VM once
 
-1. In the Azure portal, create an Ubuntu 24.04 VM with an SSH public key. Allow inbound TCP 22 for SSH and TCP 80 for the application. GitHub-hosted runner addresses change, so port 22 must be reachable by the runner unless a self-hosted runner or maintained IP allow-list is used.
+1. In the Azure portal, create an Ubuntu 24.04 VM with an SSH public key. For the complete stack with local AI, use a non-burstable VM with 4 vCPUs, 16 GiB RAM, and at least 80 GiB of fast SSD storage. With an external AI provider, 2 vCPUs and 8 GiB RAM is a workable minimum. Overpass initialization is largely single-core and disk intensive, so prioritize sustained per-core performance and SSD speed over choosing 8 or more vCPUs. Allow inbound TCP 22 for SSH and TCP 80 for the application. GitHub-hosted runner addresses change, so port 22 must be reachable by the runner unless a self-hosted runner or maintained IP allow-list is used.
 2. Connect to the VM and install Docker, Compose, and Git:
 
    ```sh
