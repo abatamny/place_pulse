@@ -205,7 +205,7 @@ For demos and testing, the map's **Custom location** box accepts an `https://ope
 
 Presence expires after 90 seconds without a heartbeat. A completed presence becomes a saved visit, and three completed visits at a place promote the user from `VISITOR` to `BELONG`.
 
-The innermost orbit is selected automatically. Clicking another orbit changes one shared active scope for KNOCK, DIG, Explore, and Forum; it does not change the user's physical presence. Scope identity comes from the stable OSM object, while `VENUE`, `BUILDING`, `OUTDOOR`, `SITE`, `DISTRICT`, and `OTHER` classes provide deterministic colors and labels. The same backend-generated place label is used across every place-scoped feature. Direct messages are not place-scoped.
+The innermost orbit is selected automatically. Clicking another orbit changes the active scope for DIG, Explore, and Forum; it does not change the user's physical presence. KNOCK instead combines every current scope and routes new messages automatically. Scope identity comes from the stable OSM object, while `VENUE`, `BUILDING`, `OUTDOOR`, `SITE`, `DISTRICT`, and `OTHER` classes provide deterministic colors and labels. The same backend-generated place label is used across every place-scoped feature. Direct messages are not place-scoped.
 
 ### Local Overpass initialization
 
@@ -229,9 +229,9 @@ The course-sized default is a static snapshot, so no replication feed runs in th
 
 ## KNOCK live messages
 
-After sharing a location, the main screen connects to the authenticated KNOCK WebSocket and loads recent messages for the selected orbit. Every message includes that exact scope, which the backend validates against current presence before storing and broadcasting it. A building KNOCK therefore stays in the building room, while a campus KNOCK reaches users currently sharing the campus scope.
+After sharing a location, the main screen connects to the authenticated KNOCK WebSocket and combines recent and live messages from every scope where the user is currently present. Each message displays its routed scope. On send, the backend gives the AI adapter only the user's current scope IDs, names, classes, and containment hierarchy. The model selects exactly one scope from that allow list based on the message content; the backend rejects invented or unavailable IDs and rechecks presence before storing and broadcasting. A building KNOCK therefore stays in the building room, while a campus KNOCK reaches users currently sharing the campus scope.
 
-`VISITOR` messages are moderated before publication and fail closed if local inference is unavailable. `BELONG` messages appear immediately and create a PostgreSQL background job for the worker to check afterward.
+Every KNOCK is routed before publication. A routed `VISITOR` message is then moderated before it is stored or broadcast and fails closed if local inference is unavailable. A routed `BELONG` message is published immediately after routing and creates a PostgreSQL background job for the worker to check afterward.
 
 ## DIG temporary media
 

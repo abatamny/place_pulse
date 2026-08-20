@@ -592,7 +592,26 @@ dd {
   font-size: 0.78rem;
 }
 
+.message-author {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 0.1rem;
+}
+
+.message-scope {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: #58736a;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .message-meta time {
+  flex: 0 0 auto;
   margin-left: auto;
 }
 

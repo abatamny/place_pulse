@@ -3,7 +3,12 @@ from dataclasses import dataclass
 import pytest
 from fastapi.testclient import TestClient
 
-from app.ai import ModerationDecision, get_ai_adapter
+from app.ai import (
+    ModerationDecision,
+    PlaceRouteOption,
+    RoutingDecision,
+    get_ai_adapter,
+)
 from app.main import app
 from app.osm import ResolvedPlace, get_place_resolver
 
@@ -50,6 +55,14 @@ class FakeAIAdapter:
             approved=True,
             reason="Safe course test content",
             categories=[],
+        )
+
+    async def route_message(
+        self, text: str, places: list[PlaceRouteOption]
+    ) -> RoutingDecision:
+        return RoutingDecision(
+            place_id=places[-1].place_id,
+            reason="Route to the current course-test place",
         )
 
 
@@ -132,7 +145,7 @@ def test_user_journey_from_registration_to_place_activity_and_messaging(
     assert published["type"] == "message"
     assert published["message"]["text"] == "Study group starts at four."
     history = client.get(
-        f"/api/knock/history?place_id={place['id']}",
+        "/api/knock/history",
         headers=headers(first_token),
     )
     assert [item["id"] for item in history.json()["messages"]] == [

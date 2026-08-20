@@ -768,13 +768,11 @@ function KnockPanel({
   token,
   user,
   places,
-  activeScope,
   onDigPublished,
 }: {
   token: string;
   user: User;
   places: CurrentPlace[];
-  activeScope: CurrentPlace | null;
   onDigPublished: (dig: Dig) => void;
 }) {
   const socketRef = useRef<WebSocket | null>(null);
@@ -799,14 +797,13 @@ function KnockPanel({
   }, [messages.length, pendingMessages.length]);
 
   useEffect(() => {
-    if (!activeScope) {
+    if (places.length === 0) {
       setMessages([]);
       setPendingMessages([]);
       setConnection("waiting");
       setError("");
       return;
     }
-    const selectedScopeId = activeScope.id;
 
     let active = true;
     let reconnectTimer: number | undefined;
@@ -815,7 +812,7 @@ function KnockPanel({
     setError("");
 
     apiRequest<KnockHistoryResponse>(
-      `/api/knock/history?place_id=${selectedScopeId}`,
+      "/api/knock/history",
       {},
       token,
     )
@@ -852,9 +849,6 @@ function KnockPanel({
           setError("");
         } else if (payload.type === "message") {
           const incoming = payload.message as KnockMessage;
-          if (incoming.place_id !== selectedScopeId) {
-            return;
-          }
           setMessages((current) =>
             mergeMessages([...current, incoming]),
           );
@@ -925,7 +919,7 @@ function KnockPanel({
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [token, placeKey, activeScope?.id, user.id, onDigPublished]);
+  }, [token, placeKey, user.id, onDigPublished]);
 
   useEffect(() => {
     if (!moderationPendingKey) {
@@ -1000,16 +994,11 @@ function KnockPanel({
       setError("KNOCK is reconnecting. Try again in a moment.");
       return;
     }
-    if (!activeScope) {
-      setError("Select a current place scope before sending.");
-      return;
-    }
     const pendingId = pendingIdRef.current--;
     const clientId = `knock-${user.id}-${Math.abs(pendingId)}`;
     socketRef.current.send(
       JSON.stringify({
         type: "message",
-        place_id: activeScope.id,
         client_id: clientId,
         text,
       }),
@@ -1027,12 +1016,11 @@ function KnockPanel({
     setDraft("");
   }
 
-  const pendingStatus = activeScope?.rank === "BELONG" ? "Sending" : "Checking";
-  const pendingExplanation = activeScope?.rank === "BELONG"
-    ? "Waiting for server confirmation. Visible only to you."
-    : "Safety checks may be in progress. Visible only to you.";
+  const pendingStatus = "Routing";
+  const pendingExplanation =
+    "Choosing the right nearby scope and applying required checks. Visible only to you.";
 
-  if (!activeScope) {
+  if (places.length === 0) {
     return (
       <section className="knock-card knock-empty">
         <span className="knock-icon" aria-hidden="true"><Icon name="messages" size={28} /></span>
@@ -1054,8 +1042,10 @@ function KnockPanel({
         </span>
       </header>
 
-      <div className="place-chips" aria-label="Selected KNOCK scope">
-        <span className="place-chip--selected">Scope: {activeScope.display_name}</span>
+      <div className="place-chips" aria-label="Current KNOCK scopes">
+        <span className="place-chip--selected">
+          All current scopes ({places.length})
+        </span>
       </div>
 
       <div className="knock-feed" aria-live="polite" ref={feedRef}>
@@ -1072,7 +1062,15 @@ function KnockPanel({
                 key={message.id}
               >
                 <div className="message-meta">
-                  <strong>{message.nickname}</strong>
+                  <span className="message-author">
+                    <strong>{message.nickname}</strong>
+                    <span
+                      className="message-scope"
+                      title={message.place_display_name}
+                    >
+                      {message.place_display_name}
+                    </span>
+                  </span>
                   {message.moderation_status === "flagged" && (
                     <span className="rejected-status">Removed</span>
                   )}
@@ -3154,7 +3152,7 @@ function SignedInApp({
                     height: `${dimensions.height}%`,
                     width: `${dimensions.width}%`,
                   }}
-                  title={`Switch KNOCK, DIG, Explore, and Forum to ${place.display_name}`}
+                  title={`Switch DIG, Explore, and Forum to ${place.display_name}`}
                   type="button"
                 >
                   <span className="scope-orbit-label">
@@ -3299,7 +3297,6 @@ function SignedInApp({
 
         <aside className="knock-column" aria-label="Live nearby conversation">
           <KnockPanel
-            activeScope={activeScope}
             onDigPublished={setLatestPublishedDig}
             places={places}
             token={token}

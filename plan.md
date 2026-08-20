@@ -69,7 +69,7 @@ Do not replace these technologies or add an alternative framework for the same r
 - Upsert resolved places by their OSM type/ID so content keeps stable internal place references without using broad stored boundaries to decide later heartbeats.
 - Support nested places such as campus -> faculty -> building.
 - Keep every useful named non-administrative enclosing feature returned by Overpass. Classify scopes as `VENUE`, `BUILDING`, `OUTDOOR`, `SITE`, `DISTRICT`, or `OTHER`; administrative features provide locality context instead of interaction rooms.
-- Display the current scope hierarchy as clickable map orbits. The most-specific current scope is selected automatically, and clicking another orbit changes one shared active scope for KNOCK, DIG, Explore, and Forum without changing physical presence.
+- Display the current scope hierarchy as clickable map orbits. The most-specific current scope is selected automatically, and clicking another orbit changes the active scope for DIG, Explore, and Forum without changing physical presence. KNOCK combines every current scope and routes each new message automatically.
 - Format place labels consistently as `Primary place · Parent place, City`, omitting missing or duplicate parts.
 - Use heartbeats while the app is open and expire stale presence.
 - Record visits and promote repeated users from `VISITOR` to `BELONG` using a simple threshold.
@@ -79,7 +79,7 @@ Do not replace these technologies or add an alternative framework for the same r
 - Send live messages through WebSockets to users in the relevant place only.
 - Store accepted messages and provide history.
 - Moderate visitor messages before publication; BELONG messages may be checked afterward.
-- For nested places, send to the exact active scope selected on the map; never broaden the audience automatically.
+- For nested places, show messages from every scope where the user is currently present. Route each new message with the AI adapter to exactly one server-supplied current scope based on its content and the place hierarchy.
 
 ### 5. DIG and Explore
 
@@ -169,12 +169,13 @@ Build the small frontend needed for each feature together with its backend. Do n
 ### Step 5 - KNOCK live messages
 
 - Authenticate WebSocket connections and maintain rooms for the users currently present in each place.
-- Send messages only to the exact active scope supplied by the client and validated against current presence.
+- Show one recent/live feed across every scope where the user is currently present.
+- Route each message before publication to exactly one server-supplied current scope using its content, scope class, and place hierarchy; reject unknown or unavailable routing results.
 - Moderate `VISITOR` messages before publication; allow `BELONG` messages immediately and check them afterward.
 - Store accepted messages and return recent place history.
 - Test same-place delivery, cross-place isolation, invalid tokens, moderation rejection, reconnecting, and saved history.
 
-**Complete when:** two logged-in users at the same place exchange a live KNOCK without refresh, while a user elsewhere receives nothing.
+**Complete when:** two logged-in users at the same place exchange a live KNOCK without refresh, nested-scope messages are AI-routed and labeled in one combined current-place feed, while a user outside the routed scope receives nothing.
 
 ### Step 6 - DIG temporary media
 

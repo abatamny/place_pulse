@@ -18,8 +18,10 @@ from sqlalchemy.orm import aliased
 
 from app.ai import (
     AIAdapter,
+    PlaceRouteOption,
     get_ai_adapter,
     moderate_before_publication,
+    route_before_publication,
 )
 from app.auth import AuthContext, InvalidSessionError, require_auth, resolve_session
 from app.database import SessionLocal
@@ -58,6 +60,7 @@ class ActivePlace:
     name: str
     display_name: str
     parent_place_id: int | None
+    scope_class: str
     rank: str
 
 
@@ -90,6 +93,7 @@ def active_places_for_user(user_id: int) -> list[ActivePlace]:
                 Place.id,
                 Place.name,
                 Place.parent_place_id,
+                Place.scope_class,
                 PlaceMembership.rank,
             )
             .join(
@@ -114,6 +118,7 @@ def active_places_for_user(user_id: int) -> list[ActivePlace]:
                 name=row.name,
                 display_name=place_display_name(db, db.get(Place, row.id)),
                 parent_place_id=row.parent_place_id,
+                scope_class=row.scope_class,
                 rank=row.rank,
             )
             for row in rows
@@ -298,7 +303,6 @@ async def publish_message(
     auth: AuthContext,
     adapter: AIAdapter,
     text: str,
-    place_id: int | None,
     client_id: str | None,
 ) -> None:
     active_places = active_places_for_user(auth.user.id)
@@ -314,23 +318,36 @@ async def publish_message(
     room_manager.update_places(
         connection, {place.id for place in active_places}
     )
+    active_place_ids = {place.id for place in active_places}
 
-    target = (
-        active_places[-1]
-        if place_id is None
-        else next(
-            (place for place in active_places if place.id == place_id),
-            None,
-        )
+    routing = await route_before_publication(
+        adapter,
+        text,
+        [
+            PlaceRouteOption(
+                place_id=place.id,
+                name=place.name,
+                parent_place_id=(
+                    place.parent_place_id
+                    if place.parent_place_id in active_place_ids
+                    else None
+                ),
+                scope_class=place.scope_class,
+            )
+            for place in active_places
+        ],
     )
-    if target is None:
+    if routing is None:
         await send_error(
             connection,
-            "invalid_scope",
-            "Select one of your current place scopes before sending.",
+            "routing_failed",
+            "The KNOCK could not be routed to a current place. Try again.",
             client_id,
         )
         return
+    target = next(
+        place for place in active_places if place.id == routing.place_id
+    )
 
     if target.rank == "VISITOR":
         moderation = await moderate_before_publication(adapter, text)
@@ -439,7 +456,6 @@ async def knock_websocket(
                 auth,
                 adapter,
                 payload.text,
-                payload.place_id,
                 payload.client_id,
             )
     except WebSocketDisconnect:
@@ -450,13 +466,15 @@ async def knock_websocket(
 
 @knock_router.get("/history", response_model=KnockHistoryResponse)
 def knock_history(
-    place_id: int,
     auth: AuthContext = Depends(require_auth),
 ) -> KnockHistoryResponse:
-    if place_id not in {place.id for place in active_places_for_user(auth.user.id)}:
+    active_place_ids = {
+        place.id for place in active_places_for_user(auth.user.id)
+    }
+    if not active_place_ids:
         raise HTTPException(
             status_code=403,
-            detail="Current presence at this place is required",
+            detail="Current presence is required",
         )
 
     with SessionLocal() as db:
@@ -467,7 +485,7 @@ def knock_history(
             .join(origin_place, origin_place.id == KnockMessage.origin_place_id)
             .join(User, User.id == KnockMessage.user_id)
             .where(
-                KnockMessage.place_id == place_id,
+                KnockMessage.place_id.in_(active_place_ids),
                 KnockMessage.moderation_status != "flagged",
             )
             .order_by(KnockMessage.created_at.desc(), KnockMessage.id.desc())

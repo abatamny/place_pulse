@@ -38,6 +38,9 @@ class PlaceOption(StrictModel):
     place_id: int = Field(gt=0)
     name: str = Field(min_length=1, max_length=200)
     parent_place_id: int | None = None
+    scope_class: Literal[
+        "VENUE", "BUILDING", "OUTDOOR", "SITE", "DISTRICT", "OTHER"
+    ] = "OTHER"
 
 
 class TextRoutingRequest(StrictModel):

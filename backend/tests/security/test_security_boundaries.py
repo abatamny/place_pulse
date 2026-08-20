@@ -24,7 +24,7 @@ pytestmark = pytest.mark.security
         ),
         ("get", "/api/presence/current", {}),
         ("post", "/api/presence/leave", {}),
-        ("get", "/api/knock/history?place_id=1", {}),
+        ("get", "/api/knock/history", {}),
         ("get", "/api/knock/moderation-status?message_ids=1", {}),
         ("get", "/api/digs?place_id=1", {}),
         ("get", "/api/explore", {}),

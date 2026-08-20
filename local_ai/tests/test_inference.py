@@ -2,6 +2,7 @@ import pytest
 
 from app.inference import (
     InferenceError,
+    default_route_place,
     explicitly_named_place,
     extract_json_object,
     image_decision,
@@ -47,6 +48,20 @@ def test_exact_place_name_is_routed_deterministically() -> None:
 
     assert matched is not None
     assert matched.place_id == 2
+
+
+def test_deepest_place_is_the_default_route() -> None:
+    places = [
+        PlaceOption(place_id=1, name="Course Campus", scope_class="SITE"),
+        PlaceOption(
+            place_id=2,
+            name="Engineering Building",
+            parent_place_id=1,
+            scope_class="BUILDING",
+        ),
+    ]
+
+    assert default_route_place(places).place_id == 2
 
 
 def test_image_decision_rejects_unsafe_probability() -> None:

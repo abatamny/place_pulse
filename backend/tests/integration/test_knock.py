@@ -48,6 +48,7 @@ class FakeKnockAI:
         self.route_place_id: int | None = None
         self.moderation_calls = 0
         self.routing_calls = 0
+        self.routing_places: list[PlaceRouteOption] = []
 
     async def moderate_text(self, text: str) -> object:
         self.moderation_calls += 1
@@ -57,6 +58,7 @@ class FakeKnockAI:
         self, text: str, places: list[PlaceRouteOption]
     ) -> object:
         self.routing_calls += 1
+        self.routing_places = list(places)
         return RoutingDecision(
             place_id=self.route_place_id or places[-1].place_id,
             reason="Selected the matching place layer",
@@ -76,12 +78,14 @@ def create_place(
     osm_id: int,
     parent_place_id: int | None = None,
     locality: str | None = None,
+    scope_class: str = "OTHER",
 ) -> int:
     with SessionLocal() as db:
         place = Place(
             osm_type="way",
             osm_id=osm_id,
             name=name,
+            scope_class=scope_class,
             locality=locality,
             center_lat=32.0,
             center_lon=35.0,
@@ -170,6 +174,8 @@ def test_same_place_users_receive_live_message(
     assert received["message"]["text"] == "Study group?"
     assert received["message"]["place_id"] == place_id
     assert received["message"]["place_display_name"] == "Course Library, Haifa"
+    assert fake_ai.routing_calls == 1
+    assert fake_ai.moderation_calls == 1
 
 
 @pytest.mark.security
@@ -196,28 +202,28 @@ def test_cross_place_rooms_are_isolated(
 
 
 @pytest.mark.security
-def test_selected_knock_scope_requires_current_presence(
+def test_knock_routing_rejects_an_invented_scope(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:
     current_place = create_place("Current Place", 2110)
-    unavailable_place = create_place("Unavailable Place", 2111)
     sender = create_present_user(
-        "0500001110", "Scoped Sender", [current_place]
+        "0500001110", "Routed Sender", [current_place]
     )
+    fake_ai.route_place_id = 999
 
     with client.websocket_connect(websocket_path(sender)) as websocket:
         assert_ready(websocket)
         websocket.send_json(
             {
                 "type": "message",
-                "place_id": unavailable_place,
-                "text": "This must not escape the current scope",
+                "text": "This must not escape the active scopes",
             }
         )
         rejected = websocket.receive_json()
 
     assert rejected["type"] == "error"
-    assert rejected["code"] == "invalid_scope"
+    assert rejected["code"] == "routing_failed"
+    assert [place.place_id for place in fake_ai.routing_places] == [current_place]
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(KnockMessage)) == 0
 
@@ -258,6 +264,8 @@ def test_visitor_moderation_rejection_is_not_published(
     assert rejected["type"] == "error"
     assert rejected["code"] == "moderation_rejected"
     assert rejected["client_id"] == "visitor-rejected-1"
+    assert fake_ai.routing_calls == 1
+    assert fake_ai.moderation_calls == 1
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(KnockMessage)) == 0
 
@@ -279,7 +287,7 @@ def test_reconnecting_user_can_send_and_load_saved_history(
         assert websocket.receive_json()["message"]["text"] == "After reconnect"
 
     history = client.get(
-        f"/api/knock/history?place_id={place_id}",
+        "/api/knock/history",
         headers={"Authorization": f"Bearer {user.token}"},
     )
     assert history.status_code == 200
@@ -305,6 +313,7 @@ def test_belong_message_is_immediate_and_queued_for_background_check(
     assert published["type"] == "message"
     assert published["message"]["author_rank"] == "BELONG"
     assert published["message"]["moderation_status"] == "post_pending"
+    assert fake_ai.routing_calls == 1
     assert fake_ai.moderation_calls == 0
     with SessionLocal() as db:
         job = db.scalar(select(AIJob))
@@ -331,6 +340,7 @@ def test_belong_message_is_immediate_and_queued_for_background_check(
         categories=["harassment"],
     )
     assert asyncio.run(process_next_job(fake_ai)) is True
+    assert fake_ai.moderation_calls == 1
 
     with SessionLocal() as db:
         saved = db.get(KnockMessage, published["message"]["id"])
@@ -346,7 +356,7 @@ def test_belong_message_is_immediate_and_queued_for_background_check(
     assert flagged_status.json()["messages"][0]["moderation_status"] == "flagged"
 
     history = client.get(
-        f"/api/knock/history?place_id={place_id}",
+        "/api/knock/history",
         headers={"Authorization": f"Bearer {belong_user.token}"},
     )
     assert history.status_code == 200
@@ -380,7 +390,7 @@ def test_belong_message_background_approval_updates_status_and_history(
     ]
 
     history = client.get(
-        f"/api/knock/history?place_id={place_id}",
+        "/api/knock/history",
         headers={"Authorization": f"Bearer {belong_user.token}"},
     )
     assert history.status_code == 200
@@ -416,7 +426,7 @@ def test_moderation_status_is_isolated_to_current_places(
 
 
 @pytest.mark.security
-def test_nested_message_is_sent_only_to_selected_place_scope(
+def test_nested_message_is_sent_only_to_ai_routed_place_scope(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:
     campus_id = create_place("Course Campus", 2501)
@@ -443,7 +453,6 @@ def test_nested_message_is_sent_only_to_selected_place_scope(
                 sender_socket.send_json(
                     {
                         "type": "message",
-                        "place_id": building_id,
                         "text": "Meet inside the building",
                     }
                 )
@@ -453,7 +462,6 @@ def test_nested_message_is_sent_only_to_selected_place_scope(
                 campus_socket.send_json(
                     {
                         "type": "message",
-                        "place_id": campus_id,
                         "text": "Campus announcement",
                     }
                 )
@@ -461,15 +469,18 @@ def test_nested_message_is_sent_only_to_selected_place_scope(
 
     assert building_received["message"]["text"] == "Meet inside the building"
     assert campus_received["message"]["text"] == "Campus announcement"
-    assert fake_ai.routing_calls == 0
+    assert fake_ai.routing_calls == 2
 
 
 def test_nested_message_can_use_parent_scope_while_preserving_origin(
     client: TestClient, fake_ai: FakeKnockAI
 ) -> None:
-    campus_id = create_place("Shared Campus", 2510)
+    campus_id = create_place("Shared Campus", 2510, scope_class="SITE")
     building_id = create_place(
-        "Science Building", 2511, parent_place_id=campus_id
+        "Science Building",
+        2511,
+        parent_place_id=campus_id,
+        scope_class="BUILDING",
     )
     sender = create_present_user(
         "0500001510", "Building Sender", [campus_id, building_id]
@@ -477,6 +488,7 @@ def test_nested_message_can_use_parent_scope_while_preserving_origin(
     campus_user = create_present_user(
         "0500001511", "Campus Recipient", [campus_id]
     )
+    fake_ai.route_place_id = campus_id
     with client.websocket_connect(websocket_path(sender)) as sender_socket:
         assert_ready(sender_socket)
         with client.websocket_connect(websocket_path(campus_user)) as campus_socket:
@@ -484,7 +496,6 @@ def test_nested_message_can_use_parent_scope_while_preserving_origin(
             sender_socket.send_json(
                 {
                     "type": "message",
-                    "place_id": campus_id,
                     "text": "Campus event starts soon",
                 }
             )
@@ -494,3 +505,46 @@ def test_nested_message_can_use_parent_scope_while_preserving_origin(
     assert sent["id"] == received["id"]
     assert sent["place_id"] == campus_id
     assert sent["origin_place_id"] == building_id
+    assert [
+        (place.place_id, place.parent_place_id, place.scope_class)
+        for place in fake_ai.routing_places
+    ] == [
+        (campus_id, None, "SITE"),
+        (building_id, campus_id, "BUILDING"),
+    ]
+
+
+def test_history_combines_all_current_knock_scopes(
+    client: TestClient, fake_ai: FakeKnockAI
+) -> None:
+    campus_id = create_place("Combined Campus", 2520)
+    building_id = create_place(
+        "Combined Building", 2521, parent_place_id=campus_id
+    )
+    sender = create_present_user(
+        "0500001520", "Combined Sender", [campus_id, building_id]
+    )
+
+    with client.websocket_connect(websocket_path(sender)) as websocket:
+        assert_ready(websocket)
+        fake_ai.route_place_id = building_id
+        websocket.send_json({"type": "message", "text": "Building update"})
+        building_message = websocket.receive_json()["message"]
+
+        fake_ai.route_place_id = campus_id
+        websocket.send_json({"type": "message", "text": "Campus update"})
+        campus_message = websocket.receive_json()["message"]
+
+    history = client.get(
+        "/api/knock/history",
+        headers={"Authorization": f"Bearer {sender.token}"},
+    )
+
+    assert history.status_code == 200
+    assert [message["id"] for message in history.json()["messages"]] == [
+        building_message["id"],
+        campus_message["id"],
+    ]
+    assert {
+        message["place_id"] for message in history.json()["messages"]
+    } == {campus_id, building_id}

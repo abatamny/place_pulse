@@ -129,7 +129,6 @@ class PresenceResponse(BaseModel):
 
 class KnockSendPayload(StrictRequestModel):
     type: Literal["message"]
-    place_id: int | None = Field(default=None, gt=0)
     client_id: str | None = Field(default=None, min_length=1, max_length=80)
     text: str = Field(min_length=1, max_length=500)
 

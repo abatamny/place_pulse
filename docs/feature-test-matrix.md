@@ -15,7 +15,7 @@ This list connects each implemented feature to its main automated evidence. Exte
 | Jailbreak robustness: normalized direct/obfuscated prompt-injection detection, untrusted-instruction rejection, output screening, and fail-closed behavior | security-marked tests in `tests/unit/test_ai.py` and feature integration files | Security |
 | Hallucination robustness: strict schemas/category allow lists, invented or contradictory place rejection, hierarchy validation, and confidence-gated media routing | `tests/unit/test_ai.py`, `tests/integration/test_ai_worker.py`, `tests/integration/test_knock.py` | Unit/integration/security |
 | Fair PostgreSQL AI job scheduling and worker failure handling | `tests/integration/test_jobs.py`, `tests/integration/test_ai_worker.py` | Integration |
-| KNOCK live delivery, room isolation, moderation, persistence, reconnect history | `tests/integration/test_knock.py` | Integration/WebSocket |
+| KNOCK AI scope routing, combined current-scope feed, live delivery, room isolation, moderation, persistence, reconnect history | `tests/integration/test_knock.py` | Integration/WebSocket |
 | DIG media validation, upload limit, moderation, access control, expiry | `tests/integration/test_digs.py` | Integration/security |
 | Explore memory creation, participant access, current-place access, likes/comments | `tests/integration/test_explore.py` | Integration/security |
 | Forum posts, anonymous identity hiding, comments, votes, personal totals | `tests/integration/test_forum.py` | Integration/security |
