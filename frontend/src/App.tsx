@@ -894,19 +894,30 @@ function PresencePanel({
           <span>Custom</span>
         </button>
         <button
+          aria-label={
+            status === "requesting"
+              ? "Detecting place..."
+              : customLocation
+                ? "Refresh custom location"
+                : status === "active"
+                  ? "Refresh location"
+                  : "Share my location"
+          }
           className="button location-primary-action"
           disabled={status === "requesting"}
           onClick={() => setRequestNumber((value) => value + 1)}
           type="button"
         >
           <Icon name="locate" size={18} />
-          {status === "requesting"
-            ? "Detecting place..."
-            : customLocation
-              ? "Refresh custom location"
-              : status === "active"
-                ? "Refresh location"
-                : "Share my location"}
+          <span className="location-action-label" aria-hidden="true">
+            {status === "requesting"
+              ? "Detecting place..."
+              : customLocation
+                ? "Refresh custom location"
+                : status === "active"
+                  ? "Refresh location"
+                  : "Share my location"}
+          </span>
         </button>
       </div>
       <p className="location-note">
@@ -921,11 +932,13 @@ function KnockPanel({
   user,
   places,
   onDigPublished,
+  onClose,
 }: {
   token: string;
   user: User;
   places: CurrentPlace[];
   onDigPublished: (dig: Dig) => void;
+  onClose?: () => void;
 }) {
   const socketRef = useRef<WebSocket | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
@@ -1244,6 +1257,16 @@ function KnockPanel({
   if (places.length === 0) {
     return (
       <section className="knock-card knock-empty">
+        {onClose && (
+          <button
+            aria-label="Close KNOCK"
+            className="knock-close icon-button"
+            onClick={onClose}
+            type="button"
+          >
+            <Icon name="x" />
+          </button>
+        )}
         <span className="knock-icon" aria-hidden="true"><Icon name="messages" size={28} /></span>
         <h2>Nearby KNOCKS appear here</h2>
         <p>Share your location to join the live conversation at your place.</p>
@@ -1261,6 +1284,16 @@ function KnockPanel({
         <span className={`socket-status socket-status--${connection}`}>
           {connection === "connected" ? "Connected" : connection}
         </span>
+        {onClose && (
+          <button
+            aria-label="Close KNOCK"
+            className="knock-close icon-button"
+            onClick={onClose}
+            type="button"
+          >
+            <Icon name="x" />
+          </button>
+        )}
       </header>
 
       <div className="knock-feed" aria-live="polite" ref={feedRef}>
@@ -3648,6 +3681,7 @@ function SignedInApp({
   const [dmChatRequest, setDmChatRequest] = useState<DMChatRequest | null>(null);
   const [activeOverlay, setActiveOverlay] = useState<"explore" | "forum" | null>(null);
   const [messagesOpen, setMessagesOpen] = useState(false);
+  const [knockOpen, setKnockOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [dmUnread, setDmUnread] = useState(0);
   const [latestDMMessage, setLatestDMMessage] = useState<DMMessage | null>(null);
@@ -3752,13 +3786,22 @@ function SignedInApp({
   function toggleOverlay(nextOverlay: "explore" | "forum") {
     setMessagesOpen(false);
     setAccountOpen(false);
+    setKnockOpen(false);
     setActiveOverlay((current) => current === nextOverlay ? null : nextOverlay);
   }
 
   function toggleMessages() {
     setActiveOverlay(null);
     setAccountOpen(false);
+    setKnockOpen(false);
     setMessagesOpen((open) => !open);
+  }
+
+  function toggleKnock() {
+    setActiveOverlay(null);
+    setMessagesOpen(false);
+    setAccountOpen(false);
+    setKnockOpen((open) => !open);
   }
 
   return (
@@ -3792,6 +3835,14 @@ function SignedInApp({
         </nav>
 
         <div className="topbar-actions">
+          <button
+            aria-label={knockOpen ? "Close KNOCK" : "Open KNOCK"}
+            className={`topbar-action topbar-action--knock ${knockOpen ? "active" : ""}`}
+            onClick={toggleKnock}
+            type="button"
+          >
+            <Icon name="knock" size={20} />
+          </button>
           <button
             aria-label={dmUnread ? `Messages, ${dmUnread} unread` : "Messages"}
             className={`topbar-action ${messagesOpen ? "active" : ""}`}
@@ -4013,8 +4064,12 @@ function SignedInApp({
           </div>
         </section>
 
-        <aside className="knock-column" aria-label="Live nearby conversation">
+        <aside
+          className={`knock-column ${knockOpen ? "knock-column--open" : ""}`}
+          aria-label="Live nearby conversation"
+        >
           <KnockPanel
+            onClose={toggleKnock}
             onDigPublished={setLatestPublishedDig}
             places={places}
             token={token}

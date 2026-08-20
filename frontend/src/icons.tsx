@@ -5,6 +5,7 @@ type IconName =
   | "chevron-down"
   | "compass"
   | "forum"
+  | "knock"
   | "locate"
   | "log-out"
   | "messages"
@@ -40,6 +41,13 @@ export function Icon({
       <>
         <path d="M20 14a3 3 0 0 1-3 3H9l-5 3v-3.8A3 3 0 0 1 2 13V7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v7Z" />
         <path d="M7 9h10M7 12h6" />
+      </>
+    ),
+    knock: (
+      <>
+        <rect x="6" y="3" width="12" height="18" rx="1.4" />
+        <circle cx="14.5" cy="12" r="0.9" fill="currentColor" stroke="none" />
+        <path d="M3 9.5c1.1.7 1.1 4.3 0 5M21 9.5c-1.1.7-1.1 4.3 0 5" />
       </>
     ),
     locate: (

@@ -499,6 +499,18 @@ dd {
   font-size: 1.65rem;
 }
 
+/* Only shown when KNOCK renders as a mobile drawer (see the ≤820px block);
+   the always-visible desktop sidebar doesn't need a close button. */
+.knock-close {
+  display: none;
+}
+
+.knock-empty .knock-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+}
+
 .socket-status {
   padding: 0.35rem 0.55rem;
   border-radius: 999px;
@@ -674,6 +686,7 @@ dd {
 }
 
 .knock-empty {
+  position: relative;
   min-height: 24rem;
   place-content: center;
   padding: 2rem;
@@ -1712,6 +1725,12 @@ button:focus-visible {
   place-items: center;
   padding: 0;
   border-radius: 0.75rem;
+}
+
+/* The KNOCK drawer trigger only exists on mobile, where KNOCK moves out of
+   the always-visible sidebar and into a button-triggered overlay. */
+.topbar-action--knock {
+  display: none;
 }
 
 .topbar-action:hover,
@@ -2951,12 +2970,6 @@ button:focus-visible {
 }
 
 @media (max-width: 820px) {
-  .map-app-shell {
-    height: auto;
-    min-height: 100svh;
-    overflow: visible;
-  }
-
   .map-topbar {
     position: sticky;
     top: 0;
@@ -2984,25 +2997,98 @@ button:focus-visible {
     transform: translateX(50%);
   }
 
+  /* KNOCK moves into a button-triggered drawer on mobile (see
+     .knock-column below), so the map is the workspace's only row and can
+     use all the space below the topbar without the page needing to scroll. */
   .map-workspace {
-    min-height: auto;
+    min-height: 0;
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(40rem, calc(100svh - 4.5rem)) minmax(31rem, 70svh);
+    grid-template-rows: minmax(0, 1fr);
     padding: 0.55rem 0.55rem calc(5rem + env(safe-area-inset-bottom));
   }
 
-  .map-main,
-  .map-canvas,
-  .knock-column {
+  .map-main {
+    display: flex;
+    min-height: 0;
     height: 100%;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* A near-square canvas keeps the orbit rings (sized as width/height
+     percentages of this box) close to circular instead of stretched tall
+     and thin, which is what a very narrow, very tall canvas produces. */
+  .map-canvas {
+    width: 100%;
+    height: auto;
+    max-height: 100%;
+    aspect-ratio: 4 / 5;
   }
 
   .map-overlay {
     position: fixed;
     z-index: 50;
-    top: 4.25rem;
-    bottom: 0;
+    inset: 0;
     height: auto;
+  }
+
+  /* The overlay's own box now spans the full viewport (so it is never
+     shorter than the topbar's real height on any device), but its content
+     still starts safely below the topbar; .map-topbar's higher z-index
+     keeps the topbar itself, including the KNOCK/Messages buttons, painted
+     on top of the small overlap. */
+  .map-overlay .knock-heading {
+    padding-top: calc(1.5rem + 4.6rem);
+  }
+
+  /* KNOCK is a button-triggered full-screen drawer on mobile instead of
+     the always-visible sidebar used on desktop. */
+  .knock-column {
+    display: none;
+  }
+
+  .knock-column--open {
+    position: fixed;
+    z-index: 50;
+    inset: 0;
+    display: block;
+    height: auto;
+    animation: surface-fade 160ms ease-out both;
+  }
+
+  .knock-column--open .knock-card {
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .knock-column--open .knock-heading {
+    padding-top: calc(1.1rem + 4.6rem);
+  }
+
+  .knock-close {
+    display: inline-grid;
+  }
+
+  .topbar-action--knock {
+    display: grid;
+  }
+
+  /* A compact, icon-only location button leaves the orbit rings underneath
+     it unobscured, instead of a wide text button sitting over that corner
+     of the map. */
+  .map-location-control .location-action-label {
+    display: none;
+  }
+
+  .map-location-control .location-primary-action {
+    display: grid;
+    width: 2.9rem;
+    height: 2.9rem;
+    min-height: 0;
+    padding: 0;
+    place-items: center;
+    border-radius: 999px;
   }
 
   .message-drawer {
@@ -3056,10 +3142,6 @@ button:focus-visible {
     position: fixed;
     top: 4.4rem;
     right: 0.6rem;
-  }
-
-  .map-workspace {
-    grid-template-rows: minmax(40rem, calc(100svh - 4rem)) minmax(32rem, 72svh);
   }
 
   .map-place-label {
@@ -3130,22 +3212,14 @@ button:focus-visible {
     backdrop-filter: blur(10px);
   }
 
-  .map-location-control .location-primary-action {
-    max-width: calc(100vw - 7.25rem);
-    overflow: hidden;
-    padding: 0.7rem 0.8rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .map-overlay {
-    top: 4rem;
-  }
-
   .map-overlay .knock-heading {
     align-items: flex-start;
     flex-direction: column;
-    padding: 1rem 4rem 0.75rem 1rem;
+    padding: calc(1rem + 4rem) 4rem 0.75rem 1rem;
+  }
+
+  .knock-column--open .knock-heading {
+    padding-top: calc(1rem + 4rem);
   }
 
   .map-overlay .explore-feed,
@@ -3188,10 +3262,6 @@ button:focus-visible {
 
   .custom-location-toggle span {
     display: none;
-  }
-
-  .map-location-control .location-primary-action {
-    max-width: calc(100vw - 5.1rem);
   }
 }
 
