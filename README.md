@@ -19,7 +19,9 @@ No local Node.js, Python, PostgreSQL, or PostGIS installation is required.
 For a single VM running the complete Compose stack (PostGIS, backend, worker,
 Nginx, the three local AI models, and regional Overpass), use:
 
-- **Minimum supported course/demo VM:** 2 vCPUs, 8 GiB RAM, and 40 GiB SSD storage.
+- **CPU:** 4 non-burstable vCPUs.
+- **Memory:** 16 GiB RAM.
+- **Storage:** At least 80 GiB of fast SSD storage.
 - **Operating system:** Ubuntu 24.04 LTS x64, or a comparable current Linux
   distribution with Docker Engine and Docker Compose v2.
 
@@ -295,13 +297,11 @@ The course-sized Azure path runs the same Docker Compose stack on one Ubuntu VM,
 
 Prerequisites:
 
-- An Ubuntu 24.04 VM with a public IP or DNS name. For the complete stack with local AI, use a non-burstable **4-vCPU, 16 GiB RAM** VM with at least **80 GiB of fast SSD storage**. When an external AI provider is configured, **2 vCPUs and 8 GiB RAM** is a workable minimum.
+- An Ubuntu 24.04 VM meeting the [VM specifications](#vm-specifications) above, with a public IP or DNS name
 - Azure network rules allowing inbound TCP ports 22 and 80
 - An SSH user with `sudo` access
 - The repository available from the public GitHub URL, with the target branch pushed
 - A private `.env` containing strong `VERIFICATION_SECRET` and `POSTGRES_PASSWORD` values, plus external AI or Twilio settings only if those services are used
-
-Overpass initialization is largely single-core and disk intensive, so 8 vCPUs do not make the first import twice as fast as 4 vCPUs. Prefer sustained per-core CPU performance and fast SSD storage over a larger burstable core count.
 
 Connect to the new VM and install the application once:
 
