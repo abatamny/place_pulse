@@ -23,13 +23,6 @@ Nginx, the three local AI models, and regional Overpass), use:
 - **Operating system:** Ubuntu 24.04 LTS x64, or a comparable current Linux
   distribution with Docker Engine and Docker Compose v2.
 
-Size the VM for first initialization rather than idle usage. During a measured
-regional Overpass import, a 4 GiB VM filled its RAM and used as much as 3.7 GiB
-of swap while the other services were running. Eight GiB of physical RAM is
-therefore the supported minimum; persistent swap remains a safety margin rather
-than a substitute for that RAM. Allow inbound TCP 22 for SSH and 80/443 for the
-application; database, AI, and Overpass ports stay internal to Docker.
-
 ## Start the application
 
 From the repository root, run:
