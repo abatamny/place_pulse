@@ -1042,12 +1042,6 @@ function KnockPanel({
         </span>
       </header>
 
-      <div className="place-chips" aria-label="Current KNOCK scopes">
-        <span className="place-chip--selected">
-          All current scopes ({places.length})
-        </span>
-      </div>
-
       <div className="knock-feed" aria-live="polite" ref={feedRef}>
         {messages.length === 0 && pendingMessages.length === 0 ? (
           <div className="feed-empty">
