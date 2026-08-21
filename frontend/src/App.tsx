@@ -1984,6 +1984,9 @@ function ExploreMemoryCard({
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState("");
+  const detailRef = useDismissOnOutsideInteraction<HTMLElement>(expanded, () =>
+    setExpanded(false),
+  );
 
   async function toggleLike() {
     setBusy(true);
@@ -2073,6 +2076,7 @@ function ExploreMemoryCard({
           aria-label={`Memory at ${memory.place_display_name}`}
           aria-modal="true"
           className="content-detail-window memory-detail-window"
+          ref={detailRef}
           role="dialog"
         >
           <header className="content-detail-heading">
@@ -2405,6 +2409,9 @@ function ForumPostCard({
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState("");
+  const detailRef = useDismissOnOutsideInteraction<HTMLElement>(expanded, () =>
+    setExpanded(false),
+  );
 
   async function vote(value: 1 | -1) {
     setBusy(true);
@@ -2430,6 +2437,7 @@ function ForumPostCard({
   }
 
   async function voteOnComment(commentId: number, value: 1 | -1, currentMyVote: number) {
+    setBusy(true);
     setError("");
     try {
       const response = currentMyVote === value
@@ -2446,6 +2454,8 @@ function ForumPostCard({
       onCommentVoted(commentId, response);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not update comment vote");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -2566,6 +2576,7 @@ function ForumPostCard({
           aria-label={post.title}
           aria-modal="true"
           className="content-detail-window forum-detail-window"
+          ref={detailRef}
           role="dialog"
         >
           <header className="content-detail-heading">
@@ -2622,6 +2633,7 @@ function ForumPostCard({
                   <div className="forum-comment-votes" aria-label={`Score ${item.score}`}>
                     <button
                       className={item.my_vote === 1 ? "active" : ""}
+                      disabled={busy}
                       onClick={() => void voteOnComment(item.id, 1, item.my_vote)}
                       type="button"
                     >
@@ -2630,6 +2642,7 @@ function ForumPostCard({
                     <span>{item.score}</span>
                     <button
                       className={item.my_vote === -1 ? "active" : ""}
+                      disabled={busy}
                       onClick={() => void voteOnComment(item.id, -1, item.my_vote)}
                       type="button"
                     >
@@ -2715,6 +2728,9 @@ function ForumPanel({
   const [pendingPosts, setPendingPosts] = useState<PendingForumPost[]>([]);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const composerRef = useDismissOnOutsideInteraction<HTMLElement>(composerOpen, () =>
+    setComposerOpen(false),
+  );
   const postsRef = useRef(posts);
   postsRef.current = posts;
 
@@ -3014,6 +3030,7 @@ function ForumPanel({
           aria-label="Create forum post"
           aria-modal="true"
           className="forum-create-window"
+          ref={composerRef}
           role="dialog"
         >
           <header className="content-detail-heading">
@@ -3198,7 +3215,9 @@ function DMPanel({
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [chatMinimized, setChatMinimized] = useState(false);
-  const [error, setError] = useState("");
+  const [drawerError, setDrawerError] = useState("");
+  const [chatError, setChatError] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
 
   useEffect(() => {
     if (!chatRequest) {
@@ -3207,7 +3226,7 @@ function DMPanel({
     setSelectedUser(chatRequest.user);
     setChatMinimized(false);
     setSearchResults([]);
-    setError("");
+    setChatError("");
     onSidebarClose();
   }, [chatRequest?.requestId]);
 
@@ -3237,7 +3256,7 @@ function DMPanel({
       })
       .catch((caught) => {
         if (active) {
-          setError(caught instanceof Error ? caught.message : "Could not load messages");
+          setDrawerError(caught instanceof Error ? caught.message : "Could not load messages");
         }
       });
     return () => {
@@ -3261,7 +3280,7 @@ function DMPanel({
     }
     let active = true;
     setLoading(true);
-    setError("");
+    setChatError("");
 
     async function loadHistory() {
       try {
@@ -3291,7 +3310,7 @@ function DMPanel({
         }
       } catch (caught) {
         if (active) {
-          setError(caught instanceof Error ? caught.message : "Could not load history");
+          setChatError(caught instanceof Error ? caught.message : "Could not load history");
         }
       } finally {
         if (active) {
@@ -3354,10 +3373,10 @@ function DMPanel({
     const form = new FormData(event.currentTarget);
     const query = String(form.get("query") || "").trim();
     if (query.length < 2) {
-      setError("Enter at least two search characters.");
+      setDrawerError("Enter at least two search characters.");
       return;
     }
-    setError("");
+    setDrawerError("");
     try {
       const response = await apiRequest<DMUserSearchResponse>(
         `/api/dms/users?query=${encodeURIComponent(query)}`,
@@ -3365,8 +3384,9 @@ function DMPanel({
         token,
       );
       setSearchResults(response.users);
+      setHasSearched(true);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not search users");
+      setDrawerError(caught instanceof Error ? caught.message : "Could not search users");
     }
   }
 
@@ -3378,7 +3398,7 @@ function DMPanel({
       return;
     }
     setSending(true);
-    setError("");
+    setChatError("");
     try {
       let requestPath = "/api/dms/messages";
       let requestBody: BodyInit;
@@ -3414,7 +3434,7 @@ function DMPanel({
       setDraftMedia(null);
       formElement.reset();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not send message");
+      setChatError(caught instanceof Error ? caught.message : "Could not send message");
     } finally {
       setSending(false);
     }
@@ -3424,7 +3444,9 @@ function DMPanel({
     setSelectedUser(person);
     setChatMinimized(false);
     setSearchResults([]);
-    setError("");
+    setHasSearched(false);
+    setDrawerError("");
+    setChatError("");
     onSidebarClose();
   }
 
@@ -3466,15 +3488,19 @@ function DMPanel({
             </button>
           </form>
 
-          {searchResults.length > 0 && (
-            <div className="dm-search-results">
-              {searchResults.map((person) => (
-                <button key={person.id} onClick={() => openConversation(person)} type="button">
-                  <strong>{person.nickname}</strong>
-                  {person.phone && <span>{person.phone}</span>}
-                </button>
-              ))}
-            </div>
+          {hasSearched && (
+            searchResults.length > 0 ? (
+              <div className="dm-search-results">
+                {searchResults.map((person) => (
+                  <button key={person.id} onClick={() => openConversation(person)} type="button">
+                    <strong>{person.nickname}</strong>
+                    {person.phone && <span>{person.phone}</span>}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="dm-search-empty">No users found.</p>
+            )
           )}
 
           <div className="dm-conversations">
@@ -3499,7 +3525,7 @@ function DMPanel({
               ))
             )}
           </div>
-          {error && <p className="knock-error">{error}</p>}
+          {drawerError && <p className="knock-error">{drawerError}</p>}
         </aside>
       )}
 
@@ -3578,7 +3604,7 @@ function DMPanel({
                   {sending ? "Sending..." : "Send"}
                 </button>
               </form>
-              {error && <p className="knock-error chat-error">{error}</p>}
+              {chatError && <p className="knock-error chat-error">{chatError}</p>}
             </>
           )}
         </section>
@@ -3812,7 +3838,9 @@ function SignedInApp({
           <span className="brand-mark" aria-hidden="true"><Icon name="compass" size={22} /></span>
           <span>
             <strong>PlacePulse</strong>
-            <small>{activeScope ? activeScope.display_name : "Your nearby place"}</small>
+            <small title={activeScope ? activeScope.display_name : undefined}>
+              {activeScope ? activeScope.display_name : "Your nearby place"}
+            </small>
           </span>
         </div>
 
@@ -3883,9 +3911,13 @@ function SignedInApp({
                   ? `Active ${scopeClassLabel(activeScope.scope_class)} scope`
                   : "Nearby now"}
               </small>
-              <strong>{activeScope?.display_name ?? "Location not shared"}</strong>
+              <strong title={activeScope?.display_name}>
+                {activeScope?.display_name ?? "Location not shared"}
+              </strong>
               {primaryPlace && activeScope?.id !== primaryPlace.id && (
-                <em>Physically at {primaryPlace.name}</em>
+                <em title={`Physically at ${primaryPlace.name}`}>
+                  Physically at {primaryPlace.name}
+                </em>
               )}
             </span>
             {activeScope && (
@@ -3908,7 +3940,7 @@ function SignedInApp({
         </div>
 
         <section className="map-main" aria-label="Nearby activity map">
-          <div className="map-canvas">
+          <div className={`map-canvas ${activeOverlay ? "map-canvas--overlay-open" : ""}`}>
             <MapTexture />
 
             {/* The ring outlines are drawn as SVG ellipses (a dedicated vector
@@ -3993,12 +4025,16 @@ function SignedInApp({
               const isSelected = selectedNearbyUser?.id === nearbyUser.id;
               const isInActiveScope =
                 activeScopeIndex === -1 || sharedScopeIndex >= activeScopeIndex;
-              const cardAlignment =
+              const cardAlignment = [
                 position.left < 35
                   ? "nearby-user-card--align-left"
                   : position.left > 65
                     ? "nearby-user-card--align-right"
-                    : "";
+                    : "",
+                position.top > 65 ? "nearby-user-card--align-up" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
               return (
                 <div
                   className={`map-nearby-marker map-nearby-marker--${nearbyUser.id % 4} ${isSelected ? "map-nearby-marker--open" : ""} ${isInActiveScope ? "" : "map-nearby-marker--outside-scope"}`}

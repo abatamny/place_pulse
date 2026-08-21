@@ -172,7 +172,7 @@ textarea:focus {
 }
 
 .button:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.65;
 }
 
@@ -316,10 +316,6 @@ textarea:focus {
   gap: 0.4rem;
 }
 
-.custom-location-toggle {
-  display: none !important;
-}
-
 .text-button {
   border: 0;
   background: transparent;
@@ -384,106 +380,6 @@ dt {
 dd {
   margin: 0;
   font-weight: 700;
-}
-
-.app-shell {
-  width: min(100%, 72rem);
-  min-height: 100vh;
-  margin: 0 auto;
-  padding: 1rem;
-}
-
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
-  padding: 1rem 0.25rem;
-}
-
-.app-header .eyebrow {
-  margin-bottom: 0.25rem;
-}
-
-.app-header h1 {
-  margin: 0;
-  font-size: clamp(1.5rem, 6vw, 2.35rem);
-  letter-spacing: -0.035em;
-}
-
-.user-chip {
-  display: grid;
-  min-width: 7rem;
-  padding: 0.65rem 0.8rem;
-  border: 1px solid #d0dfd5;
-  border-radius: 0.75rem;
-  background: #fff;
-  text-align: right;
-}
-
-.user-chip span {
-  font-weight: 800;
-}
-
-.user-chip small,
-.account-summary span {
-  color: #61766f;
-}
-
-.app-content,
-.app-sidebar {
-  display: grid;
-  gap: 1rem;
-}
-
-.main-pane {
-  display: grid;
-  min-width: 0;
-  gap: 0.65rem;
-}
-
-.main-tabs {
-  display: flex;
-  gap: 0.35rem;
-  overflow-x: auto;
-  padding: 0.3rem;
-  border: 1px solid #d0dfd5;
-  border-radius: 0.8rem;
-  background: #e4ede8;
-}
-
-.main-tabs button {
-  flex: 1 0 5.5rem;
-  padding: 0.7rem;
-  border: 0;
-  border-radius: 0.6rem;
-  background: transparent;
-  color: #536c65;
-  font-weight: 800;
-}
-
-.main-tabs button.active {
-  background: #fff;
-  color: #173b34;
-  box-shadow: 0 0.15rem 0.5rem rgb(23 59 52 / 10%);
-}
-
-.account-summary {
-  display: grid;
-  gap: 0.35rem;
-  padding: 1rem;
-  border: 1px solid #d8e5de;
-  border-radius: 0.8rem;
-  background: #fff;
-}
-
-.account-summary .eyebrow {
-  margin-bottom: 0.1rem;
-}
-
-.account-summary .button {
-  margin-top: 0.65rem;
 }
 
 .knock-card {
@@ -722,32 +618,9 @@ dd {
   font-size: 3rem;
 }
 
-.dig-lifetime {
-  padding: 0.35rem 0.55rem;
-  border-radius: 999px;
-  background: #fff1cb;
-  color: #795b09;
-  font-size: 0.7rem;
-  font-weight: 800;
-}
-
 .dig-composer {
   padding: 0 1rem 1rem;
   border-bottom: 1px solid #e2ebe6;
-}
-
-.dig-upload-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.dig-upload-footer small {
-  flex: 1 1 16rem;
-  color: #61766f;
-  line-height: 1.4;
 }
 
 .dig-notice {
@@ -756,21 +629,6 @@ dd {
   background: #e0f5e8;
   color: #17623f;
   font-size: 0.82rem;
-}
-
-.dig-feed {
-  display: grid;
-  min-height: 20rem;
-  gap: 1rem;
-  padding: 1rem;
-  background: #f8faf9;
-}
-
-.dig-item {
-  overflow: hidden;
-  border: 1px solid #d8e5de;
-  border-radius: 0.85rem;
-  background: #fff;
 }
 
 .dig-media,
@@ -794,26 +652,6 @@ dd {
   color: #d8e5de;
 }
 
-.dig-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.8rem 0.9rem;
-}
-
-.dig-meta div {
-  display: grid;
-  gap: 0.15rem;
-}
-
-.dig-meta span,
-.dig-meta time {
-  color: #61766f;
-  font-size: 0.75rem;
-}
-
-.memory-permanent,
 .memory-access {
   padding: 0.35rem 0.55rem;
   border-radius: 999px;
@@ -831,14 +669,6 @@ dd {
   background: #f8faf9;
 }
 
-.explore-memory {
-  overflow: hidden;
-  border: 1px solid #d8e5de;
-  border-radius: 0.85rem;
-  background: #fff;
-}
-
-.explore-memory-heading,
 .explore-actions {
   display: flex;
   align-items: center;
@@ -847,12 +677,6 @@ dd {
   padding: 0.85rem 0.9rem;
 }
 
-.explore-memory-heading > div {
-  display: grid;
-  gap: 0.2rem;
-}
-
-.explore-memory-heading time,
 .explore-actions span,
 .explore-media-item > span {
   color: #61766f;
@@ -964,6 +788,11 @@ dd {
   box-shadow: 0 0.1rem 0.35rem rgb(23 59 52 / 10%);
 }
 
+.forum-mode-tabs button:hover:not(.active) {
+  color: #173b34;
+  background: rgb(255 255 255 / 55%);
+}
+
 .forum-composer {
   padding: 0 1rem 1rem;
   border-bottom: 1px solid #e2ebe6;
@@ -1044,42 +873,10 @@ dd {
   min-height: 0;
 }
 
-.forum-post {
-  overflow: hidden;
-  border: 1px solid #d8e5de;
-  border-radius: 0.85rem;
-  background: #fff;
-}
-
-.forum-post-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.8rem 0.9rem;
-  border-bottom: 1px solid #e2ebe6;
-}
-
-.forum-post-heading > div {
-  display: grid;
-  gap: 0.15rem;
-}
-
-.forum-post-heading span,
-.forum-post-heading time,
 .forum-comment time,
 .forum-no-comments {
   color: #61766f;
   font-size: 0.72rem;
-}
-
-.forum-post-heading span:first-child {
-  color: #173b34;
-  font-weight: 800;
-}
-
-.forum-post-heading time {
-  text-align: right;
 }
 
 .forum-post-copy {
@@ -1127,6 +924,12 @@ dd {
   color: #17623f;
 }
 
+.forum-votes button:hover:not(:disabled):not(.active) {
+  border-color: #a9c2b7;
+  background: #eef4f0;
+  color: #173b34;
+}
+
 .forum-votes strong {
   min-width: 2rem;
   text-align: center;
@@ -1144,6 +947,12 @@ dd {
   color: #536c65;
   font-size: 0.75rem;
   font-weight: 700;
+}
+
+.forum-voters-toggle:hover {
+  border-color: #a9c2b7;
+  background: #eef4f0;
+  color: #173b34;
 }
 
 .forum-voters-popup {
@@ -1262,6 +1071,12 @@ dd {
   color: #17623f;
 }
 
+.forum-comment-votes button:hover:not(:disabled):not(.active) {
+  border-color: #a9c2b7;
+  background: #eef4f0;
+  color: #173b34;
+}
+
 .forum-comment-votes span {
   min-width: 1.4rem;
   color: #536c65;
@@ -1356,6 +1171,14 @@ dd {
   padding: 0.45rem;
   border-bottom: 1px solid #e2ebe6;
   background: #fff;
+}
+
+.dm-search-empty {
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid #e2ebe6;
+  color: #61766f;
+  font-size: 0.72rem;
 }
 
 .dm-search-results button,
@@ -1538,20 +1361,6 @@ dd {
     display: flex;
     flex-direction: column;
     justify-content: center;
-  }
-
-  .app-shell {
-    padding: 1.5rem;
-  }
-
-  .app-content {
-    grid-template-columns: 18rem minmax(0, 1fr);
-    align-items: start;
-  }
-
-  .app-sidebar {
-    position: sticky;
-    top: 1.5rem;
   }
 
   .explore-media-grid {
@@ -1890,6 +1699,7 @@ button:focus-visible {
 
 .map-canvas {
   position: relative;
+  z-index: 1;
   height: 100%;
   overflow: hidden;
   isolation: isolate;
@@ -1899,6 +1709,17 @@ button:focus-visible {
     radial-gradient(circle at 51% 48%, rgb(255 255 255 / 85%) 0 2%, transparent 30%),
     linear-gradient(142deg, #e8ece7, #dbe4dd 58%, #e6e9e3);
   box-shadow: 0 1rem 2.7rem rgb(23 45 39 / 8%);
+}
+
+/* .map-place-label and .map-location-control float above the map (z-index
+   8 and 12, in .map-workspace's stacking context) so they stay readable
+   over the map background. .map-canvas's own isolated stacking context
+   normally sits below both (z-index: 1), which is correct while the map
+   is just a map — but when the Explore/Forum overlay is open inside it,
+   the whole isolated island needs to outrank them instead, or the overlay
+   renders underneath the two floating widgets. */
+.map-canvas--overlay-open {
+  z-index: 20;
 }
 
 .map-canvas::after {
@@ -2310,6 +2131,13 @@ button:focus-visible {
   transform: none;
 }
 
+/* For markers low enough on the map that the card would otherwise pop
+   open past .map-canvas's clipped bottom edge and become unreachable. */
+.nearby-user-card--align-up {
+  top: auto;
+  bottom: calc(100% + 1.2rem);
+}
+
 .nearby-user-card-avatar {
   display: grid;
   width: 2.3rem;
@@ -2402,6 +2230,7 @@ button:focus-visible {
 }
 
 .map-location-control .presence-panel {
+  position: relative;
   gap: 0.45rem;
   padding: 0;
   border: 0;
@@ -2412,6 +2241,37 @@ button:focus-visible {
 .map-location-control .place-list,
 .map-location-control .location-note {
   display: none;
+}
+
+/* The URL form is a toggle-triggered popover here (opened via
+   .custom-location-toggle below), not the always-open form the base
+   .custom-location-box rule renders elsewhere. */
+.map-location-control .custom-location-box {
+  display: none;
+  position: absolute;
+  z-index: 1;
+  bottom: calc(100% + 0.55rem);
+  left: 0;
+  width: min(21rem, calc(100vw - 2rem));
+  max-height: min(23rem, 60vh);
+  overflow-y: auto;
+}
+
+.map-location-control .custom-location-box--open {
+  display: grid;
+}
+
+.map-location-control .custom-location-toggle {
+  display: inline-flex;
+  min-width: 5.3rem;
+  border: 1px solid rgb(23 45 39 / 13%);
+  background: rgb(251 252 251 / 92%);
+  box-shadow: 0 0.5rem 1.3rem rgb(23 45 39 / 12%);
+  backdrop-filter: blur(10px);
+}
+
+.map-location-control .custom-location-toggle:hover {
+  background: #fff;
 }
 
 .map-location-control .location-primary-action {
@@ -2530,6 +2390,11 @@ button:focus-visible {
   color: #fff;
   box-shadow: 0 0.55rem 1.4rem rgb(23 45 39 / 18%);
   font-weight: 750;
+}
+
+.map-dig-add:hover:not(:disabled),
+.dig-map-empty:hover:not(:disabled) {
+  background: var(--sage);
 }
 
 .map-dig-add {
@@ -2737,8 +2602,6 @@ button:focus-visible {
   background: transparent;
 }
 
-.map-overlay .explore-memory,
-.map-overlay .forum-post,
 .map-overlay .forum-composer,
 .map-overlay .forum-location-empty,
 .map-overlay .forum-personal-summary,
@@ -3203,6 +3066,15 @@ button:focus-visible {
     display: grid;
   }
 
+  /* The location bar is normal document flow here (see .map-location-bar
+     above), so the custom-location form expands inline instead of
+     popping up over the map. */
+  .map-location-control .custom-location-box {
+    position: static;
+    width: 100%;
+    max-height: min(23rem, 45svh);
+  }
+
   /* A compact, icon-only location button keeps the bar from the DIG
      controls, instead of a wide text button in the location row. */
   .map-location-control .location-action-label {
@@ -3296,27 +3168,6 @@ button:focus-visible {
 
   .dig-expanded-card {
     width: calc(100% - 1rem);
-  }
-
-  /* The custom-location form now expands inline, in the location bar
-     above the map, instead of popping up over the map. */
-  .map-location-control .custom-location-box {
-    display: none;
-    width: 100%;
-    max-height: min(23rem, 45svh);
-    overflow-y: auto;
-  }
-
-  .map-location-control .custom-location-box--open {
-    display: grid;
-  }
-
-  .map-location-control .custom-location-toggle {
-    display: inline-flex !important;
-    min-width: 5.3rem;
-    border: 1px solid rgb(23 45 39 / 13%);
-    background: rgb(251 252 251 / 92%);
-    box-shadow: 0 0.5rem 1.3rem rgb(23 45 39 / 12%);
   }
 
   .map-overlay .knock-heading {
@@ -3533,7 +3384,7 @@ button:focus-visible {
 }
 
 .map-dig-add:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.78;
 }
 
