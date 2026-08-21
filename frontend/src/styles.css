@@ -410,8 +410,10 @@ dd {
 }
 
 /* Only shown when KNOCK renders as a mobile drawer (see the ≤820px block);
-   the always-visible desktop sidebar doesn't need a close button. */
-.knock-close {
+   the always-visible desktop sidebar doesn't need a close button. The
+   compound selector (not just .knock-close) is needed so this reliably
+   beats .icon-button's own `display: inline-grid` at equal specificity. */
+.knock-close.icon-button {
   display: none;
 }
 
@@ -3058,7 +3060,7 @@ button:focus-visible {
     padding-top: calc(1.1rem + 4.6rem);
   }
 
-  .knock-close {
+  .knock-close.icon-button {
     display: inline-grid;
   }
 
