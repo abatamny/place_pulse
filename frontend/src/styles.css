@@ -2004,6 +2004,9 @@ button:focus-visible {
   color: #1f6a55;
 }
 
+/* The ring itself is drawn by the sibling .scope-orbit-ring SVG ellipse
+   (see below); this button only handles hit-testing, focus, and the
+   label, so it stays borderless. */
 .scope-orbit {
   --orbit-color: #61718f;
   --orbit-tint: rgb(97 113 143 / 7%);
@@ -2012,20 +2015,19 @@ button:focus-visible {
   top: 50%;
   left: 50%;
   padding: 0;
-  border: 2px solid var(--orbit-color);
+  border: 0;
   border-radius: 50%;
   background: transparent;
   color: var(--orbit-color);
   cursor: pointer;
   opacity: 0.58;
   transform: translate(-50%, -50%);
-  transition: border-width 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+  transition: opacity 150ms ease;
 }
 
 .scope-orbit:hover,
 .scope-orbit:focus-visible,
 .scope-orbit--active {
-  border-width: 3px;
   opacity: 1;
 }
 
@@ -2034,10 +2036,33 @@ button:focus-visible {
   outline-offset: 3px;
 }
 
-.scope-orbit--active {
-  box-shadow:
-    inset 0 0 0 100vmax var(--orbit-tint),
-    0 0 0 4px rgb(255 255 255 / 68%);
+/* A dedicated SVG layer (one per place, matching .scope-orbit's own
+   percentage sizing/centering) draws the visible ring outlines. Native
+   SVG stroke rendering is a true vector rasterizer, so it stays crisp
+   and complete at every zoom level, unlike a CSS border-radius ellipse
+   composited inside .map-canvas's overflow: hidden + isolation: isolate
+   stack, which some mobile GPUs render with gaps in the stroke. */
+.scope-orbit-rings {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.scope-orbit-ring {
+  fill: transparent;
+  stroke: var(--orbit-color);
+  stroke-width: 2;
+  opacity: 0.58;
+  transition: stroke-width 150ms ease, opacity 150ms ease, fill 150ms ease;
+}
+
+.scope-orbit-ring--active {
+  fill: var(--orbit-tint);
+  stroke-width: 3;
+  opacity: 1;
 }
 
 .scope-orbit-label {
@@ -2072,35 +2097,44 @@ button:focus-visible {
   text-transform: uppercase;
 }
 
-.scope-orbit--venue {
+.scope-orbit--venue,
+.scope-orbit-ring--venue {
   --orbit-color: #9a4f62;
   --orbit-tint: rgb(154 79 98 / 7%);
 }
 
-.scope-orbit--building {
+.scope-orbit--building,
+.scope-orbit-ring--building {
   --orbit-color: #775c9a;
   --orbit-tint: rgb(119 92 154 / 7%);
 }
 
-.scope-orbit--outdoor {
+.scope-orbit--outdoor,
+.scope-orbit-ring--outdoor {
   --orbit-color: #26765b;
   --orbit-tint: rgb(38 118 91 / 7%);
 }
 
-.scope-orbit--site {
+.scope-orbit--site,
+.scope-orbit-ring--site {
   --orbit-color: #a06a29;
   --orbit-tint: rgb(160 106 41 / 7%);
 }
 
-.scope-orbit--district {
+.scope-orbit--district,
+.scope-orbit-ring--district {
   --orbit-color: #3b6f91;
   --orbit-tint: rgb(59 111 145 / 7%);
 }
 
-.scope-orbit--other {
+.scope-orbit--other,
+.scope-orbit-ring--other {
   --orbit-color: #67736e;
   --orbit-tint: rgb(103 115 110 / 6%);
-  border-style: dashed;
+}
+
+.scope-orbit-ring--other {
+  stroke-dasharray: 5 4;
 }
 
 .map-user-marker {

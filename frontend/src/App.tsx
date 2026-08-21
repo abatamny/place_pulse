@@ -3678,6 +3678,7 @@ function SignedInApp({
   const [activeScopeId, setActiveScopeId] = useState<number | null>(null);
   const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
   const [selectedNearbyUser, setSelectedNearbyUser] = useState<NearbyUser | null>(null);
+  const [hoveredScopeId, setHoveredScopeId] = useState<number | null>(null);
   const [dmChatRequest, setDmChatRequest] = useState<DMChatRequest | null>(null);
   const [activeOverlay, setActiveOverlay] = useState<"explore" | "forum" | null>(null);
   const [messagesOpen, setMessagesOpen] = useState(false);
@@ -3910,6 +3911,29 @@ function SignedInApp({
           <div className="map-canvas">
             <MapTexture />
 
+            {/* The ring outlines are drawn as SVG ellipses (a dedicated vector
+                rasterizer) instead of CSS border-radius, which some mobile
+                GPUs render with visible gaps in the stroke at certain zoom
+                levels. The buttons below stay in charge of hit-testing,
+                labels, and the active/selected fill tint. */}
+            <svg aria-hidden="true" className="scope-orbit-rings">
+              {places.map((place, index) => {
+                const dimensions = orbitDimensions(index, places.length);
+                const emphasized =
+                  place.id === activeScope?.id || place.id === hoveredScopeId;
+                return (
+                  <ellipse
+                    className={`scope-orbit-ring scope-orbit-ring--${place.scope_class.toLowerCase()} ${emphasized ? "scope-orbit-ring--active" : ""}`}
+                    cx="50%"
+                    cy="50%"
+                    key={place.id}
+                    rx={`${dimensions.width / 2}%`}
+                    ry={`${dimensions.height / 2}%`}
+                  />
+                );
+              })}
+            </svg>
+
             {places.map((place, index) => {
               const dimensions = orbitDimensions(index, places.length);
               const selected = place.id === activeScope?.id;
@@ -3919,7 +3943,15 @@ function SignedInApp({
                   aria-pressed={selected}
                   className={`scope-orbit scope-orbit--${place.scope_class.toLowerCase()} ${selected ? "scope-orbit--active" : ""}`}
                   key={place.id}
+                  onBlur={() =>
+                    setHoveredScopeId((current) => (current === place.id ? null : current))
+                  }
                   onClick={() => setActiveScopeId(place.id)}
+                  onFocus={() => setHoveredScopeId(place.id)}
+                  onMouseEnter={() => setHoveredScopeId(place.id)}
+                  onMouseLeave={() =>
+                    setHoveredScopeId((current) => (current === place.id ? null : current))
+                  }
                   style={{
                     height: `${dimensions.height}%`,
                     width: `${dimensions.width}%`,
