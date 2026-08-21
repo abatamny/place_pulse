@@ -6,6 +6,9 @@
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  /* Kills the gray flash Android shows on every tap, which is the single
+     biggest visual tell that a page is "just a website" and not an app. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 * {
@@ -16,6 +19,10 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  /* Stops pull-to-refresh / rubber-band scroll chaining from the outer
+     page; individual scrollable panels (feeds, chat, etc.) are unaffected
+     and still scroll normally. */
+  overscroll-behavior-y: none;
 }
 
 button,
@@ -27,6 +34,12 @@ textarea {
 
 button {
   cursor: pointer;
+  /* Removes the ~300ms tap delay / double-tap-to-zoom browsers otherwise
+     reserve for every button, and stops long-presses from triggering a
+     text-selection handle like on a web page. */
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .page-shell {
@@ -275,7 +288,8 @@ textarea:focus {
 
 .custom-location-box input {
   padding: 0.65rem 0.7rem;
-  font-size: 0.76rem;
+  /* Stays at 16px so iOS Safari doesn't auto-zoom the page on focus. */
+  font-size: 1rem;
 }
 
 .custom-location-actions {
@@ -3976,6 +3990,18 @@ button:focus-visible {
   transform: translateY(1px) scale(0.985);
 }
 
+.icon-button:active:not(:disabled),
+.map-nav button:active:not(:disabled),
+.topbar-action:active:not(:disabled),
+.profile-button:active:not(:disabled),
+.forum-mode-tabs button:active:not(:disabled),
+.dm-conversations button:active:not(:disabled),
+.dm-search-results button:active:not(:disabled),
+.memory-summary-button:active:not(:disabled),
+.forum-summary-button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
 .knock-message,
 .dm-message {
   animation: message-rise 180ms cubic-bezier(0.2, 0.75, 0.3, 1) both;
@@ -3986,12 +4012,19 @@ button:focus-visible {
   animation: feed-card-rise 190ms ease-out both;
 }
 
-.map-overlay,
 .dig-expanded-card,
 .content-detail-window,
 .forum-create-window,
 .forum-voters-popup {
   animation: surface-fade 160ms ease-out both;
+}
+
+/* .map-overlay doesn't rely on transform for its own positioning (it's
+   inset: 0), so unlike the transform-centered popovers above it can
+   safely get directional motion: a native-feeling rise instead of a flat
+   fade. */
+.map-overlay {
+  animation: sheet-rise 220ms cubic-bezier(0.2, 0.75, 0.3, 1) both;
 }
 
 .dig-upload-popover,
@@ -4097,6 +4130,17 @@ button:focus-visible {
 @keyframes surface-fade {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes sheet-rise {
+  from {
+    opacity: 0;
+    transform: translateY(1.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes panel-rise {

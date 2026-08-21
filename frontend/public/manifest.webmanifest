@@ -1,0 +1,19 @@
+{
+  "name": "PlacePulse",
+  "short_name": "PlacePulse",
+  "description": "See who's nearby, drop a DIG, and talk to your place.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#eef4ef",
+  "theme_color": "#173b34",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
