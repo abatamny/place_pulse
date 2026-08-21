@@ -1754,11 +1754,19 @@ button:focus-visible {
   background: var(--ink);
   color: #fff;
   box-shadow: 0 0.6rem 1.6rem rgb(23 45 39 / 30%);
+  transition: opacity 160ms ease, transform 160ms ease, background-color 140ms ease;
 }
 
-.knock-fab:hover,
-.knock-fab--active {
+.knock-fab:hover {
   background: var(--sage);
+}
+
+/* Hidden while KNOCK is open, so it doesn't sit on top of the composer's
+   send button. */
+.knock-fab--active {
+  opacity: 0;
+  transform: scale(0.8);
+  pointer-events: none;
 }
 
 .unread-badge {
@@ -4138,7 +4146,8 @@ button:focus-visible {
   .map-dig-add,
   .dig-map-empty,
   .dig-file-picker,
-  .knock-column {
+  .knock-column,
+  .knock-fab {
     transition: none;
   }
 }

@@ -45,9 +45,9 @@ export function Icon({
     ),
     knock: (
       <>
-        <rect x="6" y="3" width="12" height="18" rx="1.4" />
-        <circle cx="14.5" cy="12" r="0.9" fill="currentColor" stroke="none" />
-        <path d="M3 9.5c1.1.7 1.1 4.3 0 5M21 9.5c-1.1.7-1.1 4.3 0 5" />
+        <rect x="7" y="3" width="10" height="5" rx="1.4" />
+        <path d="M12 8v2.5" />
+        <circle cx="12" cy="15.5" r="4.5" />
       </>
     ),
     locate: (

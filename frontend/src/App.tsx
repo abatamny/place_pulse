@@ -3592,7 +3592,7 @@ function MapTexture() {
     <svg
       aria-label="Abstract map of your nearby place"
       className="map-art"
-      preserveAspectRatio="none"
+      preserveAspectRatio="xMidYMid slice"
       role="img"
       viewBox="0 0 1000 700"
     >
