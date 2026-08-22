@@ -3367,6 +3367,48 @@ button:focus-visible {
   50% { opacity: 0.3; }
 }
 
+.forum-post-summary--fresh {
+  border-color: #8fd1ac;
+}
+
+.forum-approved-banner {
+  margin: 0;
+  padding: 0.5rem 0.95rem;
+  border-bottom: 1px solid #bfe6cf;
+  background: #e0f5e8;
+  color: #17623f;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  animation: surface-fade 0.3s ease-out;
+}
+
+.forum-rejected-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0.5rem 0.95rem;
+  border-bottom: 1px solid #f0bcb4;
+  background: #fbe1dd;
+  color: #832f28;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  animation: surface-fade 0.3s ease-out;
+}
+
+.forum-rejected-countdown {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
 .dig-map-marker--pending {
   z-index: 9;
   pointer-events: none;

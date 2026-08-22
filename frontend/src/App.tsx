@@ -583,6 +583,19 @@ function isDenialVisible(decidedAt: string | null, now: number): boolean {
   return now - new Date(decidedAt).getTime() < DENIAL_VISIBLE_MS;
 }
 
+function formatDenialCountdown(decidedAt: string | null, now: number): string {
+  if (!decidedAt) {
+    return "";
+  }
+  const remainingMs = Math.max(0, DENIAL_VISIBLE_MS - (now - new Date(decidedAt).getTime()));
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+  if (remainingSeconds >= 60) {
+    const minutes = Math.ceil(remainingSeconds / 60);
+    return `Disappearing in ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
+  return `Disappearing in ${remainingSeconds} second${remainingSeconds === 1 ? "" : "s"}`;
+}
+
 function useNowTick(intervalMs: number): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -2391,6 +2404,7 @@ function ForumPostCard({
   post,
   token,
   currentUserId,
+  justApproved,
   onVoted,
   onCommentCreated,
   onCommentVoted,
@@ -2398,6 +2412,7 @@ function ForumPostCard({
   post: ForumPost;
   token: string;
   currentUserId: number;
+  justApproved?: boolean;
   onVoted: (vote: ForumVoteResponse) => void;
   onCommentCreated: (comment: ForumComment) => void;
   onCommentVoted: (commentId: number, vote: ForumVoteResponse) => void;
@@ -2544,7 +2559,8 @@ function ForumPostCard({
 
   return (
     <>
-      <article className="forum-post-summary">
+      <article className={`forum-post-summary${justApproved ? " forum-post-summary--fresh" : ""}`}>
+        {justApproved && <p className="forum-approved-banner">Post approved · now live</p>}
         <button
           className="forum-summary-button"
           onClick={() => setExpanded(true)}
@@ -2726,13 +2742,38 @@ function ForumPanel({
   const [submitting, setSubmitting] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [pendingPosts, setPendingPosts] = useState<PendingForumPost[]>([]);
-  const [notice, setNotice] = useState("");
+  const [justApprovedPostIds, setJustApprovedPostIds] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
   const composerRef = useDismissOnOutsideInteraction<HTMLElement>(composerOpen, () =>
     setComposerOpen(false),
   );
   const postsRef = useRef(posts);
   postsRef.current = posts;
+  const dismissTimersRef = useRef<Set<number>>(new Set());
+
+  function flagJustApproved(postId: number) {
+    setJustApprovedPostIds((current) => new Set(current).add(postId));
+    const timer = window.setTimeout(() => {
+      dismissTimersRef.current.delete(timer);
+      setJustApprovedPostIds((current) => {
+        if (!current.has(postId)) {
+          return current;
+        }
+        const next = new Set(current);
+        next.delete(postId);
+        return next;
+      });
+    }, 6_000);
+    dismissTimersRef.current.add(timer);
+  }
+
+  useEffect(() => {
+    const timers = dismissTimersRef.current;
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
 
   function patchPost(postId: number, patch: Partial<ForumPost>) {
     setPosts((current) =>
@@ -2800,14 +2841,16 @@ function ForumPanel({
         if (!active) {
           return;
         }
-        const newlyApprovedOwnPost = currentPosts.find((post) => {
-          const postUpdate = response.posts.find((item) => item.id === post.id);
-          return (
-            post.is_mine &&
-            post.moderation_status === "pending" &&
-            postUpdate?.moderation_status === "approved"
-          );
-        });
+        const newlyApprovedOwnPostIds = currentPosts
+          .filter((post) => {
+            const postUpdate = response.posts.find((item) => item.id === post.id);
+            return (
+              post.is_mine &&
+              post.moderation_status === "pending" &&
+              postUpdate?.moderation_status === "approved"
+            );
+          })
+          .map((post) => post.id);
         setPosts((current) =>
           current.map((post) => {
             const postUpdate = response.posts.find((item) => item.id === post.id);
@@ -2833,9 +2876,7 @@ function ForumPanel({
               : { ...post, comments };
           }),
         );
-        if (newlyApprovedOwnPost) {
-          setNotice(`Forum post shared with ${newlyApprovedOwnPost.place_display_name}.`);
-        }
+        newlyApprovedOwnPostIds.forEach((postId) => flagJustApproved(postId));
       } catch {
         // Keep the current pending state and try again on the next tick.
       }
@@ -2942,7 +2983,6 @@ function ForumPanel({
     setComposerOpen(false);
     setPendingPosts((current) => [pendingPost, ...current]);
     setError("");
-    setNotice("");
     try {
       let requestBody: BodyInit;
       let requestPath = "/api/forum/posts";
@@ -2983,7 +3023,10 @@ function ForumPanel({
     }
   }
 
-  const nowTick = useNowTick(15_000);
+  const hasActiveDenialCountdown = posts.some(
+    (post) => post.moderation_status === "denied" && isDenialVisible(post.decided_at, Date.now()),
+  );
+  const nowTick = useNowTick(hasActiveDenialCountdown ? 1_000 : 15_000);
   const visiblePendingPosts = [
     ...pendingPosts,
     ...posts.filter((post) => post.moderation_status === "pending"),
@@ -2995,6 +3038,13 @@ function ForumPanel({
   );
   const visibleApprovedPosts = posts.filter(
     (post) => post.moderation_status === "approved",
+  );
+  const feedPosts = [
+    ...visiblePendingPosts,
+    ...visibleDeniedPosts,
+    ...visibleApprovedPosts,
+  ].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
 
   return (
@@ -3114,79 +3164,90 @@ function ForumPanel({
         </div>
       )}
 
-      {notice && <p className="dig-notice">{notice}</p>}
       {error && <p className="knock-error">{error}</p>}
       <div className="forum-feed" aria-live="polite">
         {loading ? (
           <div className="feed-empty"><p>Loading forum...</p></div>
-        ) : posts.length === 0 && visiblePendingPosts.length === 0 ? (
+        ) : feedPosts.length === 0 ? (
           <div className="feed-empty">
             <p>{mode === "mine" ? "You have not posted yet." : "No forum posts yet."}</p>
             <span>{mode === "mine" ? "Your posts will appear here." : "Start a place discussion."}</span>
           </div>
         ) : (
           <>
-            {visiblePendingPosts.map((post) => (
-              <article className="forum-post-summary moderation-pending" key={post.id}>
-                <div className="forum-summary-button forum-summary-button--pending">
-                  <span className="forum-summary-main">
-                    <span className="forum-summary-meta">
-                      <strong>{post.nickname} · You</strong>
-                      <span>{post.place_display_name}</span>
-                    </span>
-                    <strong className="forum-summary-title">{post.title}</strong>
-                    <span className="forum-summary-excerpt">{post.body}</span>
-                  </span>
-                  <span className="forum-summary-side">
-                    <span className="pending-status">Safety check</span>
-                    <span>Visible only to you</span>
-                  </span>
-                </div>
-              </article>
-            ))}
-            {visibleDeniedPosts.map((post) => (
-              <article className="forum-post-summary moderation-rejected" key={post.id}>
-                <div className="forum-summary-button forum-summary-button--pending">
-                  <span className="forum-summary-main">
-                    <span className="forum-summary-meta">
-                      <strong>{post.nickname} · You</strong>
-                      <span>{post.place_display_name}</span>
-                    </span>
-                    <strong className="forum-summary-title">{post.title}</strong>
-                    <span className="forum-summary-excerpt">{post.body}</span>
-                  </span>
-                  <span className="forum-summary-side">
-                    <span className="rejected-status">Not published</span>
-                    <span>This post did not pass the safety check. Visible only to you for 15 minutes.</span>
-                  </span>
-                </div>
-              </article>
-            ))}
-            {visibleApprovedPosts.map((post) => (
-              <ForumPostCard
-                key={post.id}
-                currentUserId={user.id}
-                onCommentCreated={(comment) => addComment(post.id, comment)}
-                onCommentVoted={(commentId, vote) =>
-                  patchComment(post.id, commentId, {
-                    upvotes: vote.upvotes,
-                    downvotes: vote.downvotes,
-                    score: vote.score,
-                    my_vote: vote.my_vote,
-                  })
-                }
-                onVoted={(vote) =>
-                  patchPost(post.id, {
-                    upvotes: vote.upvotes,
-                    downvotes: vote.downvotes,
-                    score: vote.score,
-                    my_vote: vote.my_vote,
-                  })
-                }
-                post={post}
-                token={token}
-              />
-            ))}
+            {feedPosts.map((post) => {
+              if (post.moderation_status === "pending") {
+                return (
+                  <article className="forum-post-summary moderation-pending" key={post.id}>
+                    <div className="forum-summary-button forum-summary-button--pending">
+                      <span className="forum-summary-main">
+                        <span className="forum-summary-meta">
+                          <strong>{post.nickname} · You</strong>
+                          <span>{post.place_display_name}</span>
+                        </span>
+                        <strong className="forum-summary-title">{post.title}</strong>
+                        <span className="forum-summary-excerpt">{post.body}</span>
+                      </span>
+                      <span className="forum-summary-side">
+                        <span className="pending-status">Safety check</span>
+                        <span>Visible only to you</span>
+                      </span>
+                    </div>
+                  </article>
+                );
+              }
+              if (post.moderation_status === "denied") {
+                return (
+                  <article className="forum-post-summary moderation-rejected" key={post.id}>
+                    <p className="forum-rejected-banner">
+                      <span>Post did not pass safety check</span>
+                      <span className="forum-rejected-countdown">
+                        {formatDenialCountdown(post.decided_at, nowTick)}
+                      </span>
+                    </p>
+                    <div className="forum-summary-button forum-summary-button--pending">
+                      <span className="forum-summary-main">
+                        <span className="forum-summary-meta">
+                          <strong>{post.nickname} · You</strong>
+                          <span>{post.place_display_name}</span>
+                        </span>
+                        <strong className="forum-summary-title">{post.title}</strong>
+                        <span className="forum-summary-excerpt">{post.body}</span>
+                      </span>
+                      <span className="forum-summary-side">
+                        <span className="rejected-status">Not published</span>
+                      </span>
+                    </div>
+                  </article>
+                );
+              }
+              return (
+                <ForumPostCard
+                  key={post.id}
+                  currentUserId={user.id}
+                  justApproved={justApprovedPostIds.has(post.id)}
+                  onCommentCreated={(comment) => addComment(post.id, comment)}
+                  onCommentVoted={(commentId, vote) =>
+                    patchComment(post.id, commentId, {
+                      upvotes: vote.upvotes,
+                      downvotes: vote.downvotes,
+                      score: vote.score,
+                      my_vote: vote.my_vote,
+                    })
+                  }
+                  onVoted={(vote) =>
+                    patchPost(post.id, {
+                      upvotes: vote.upvotes,
+                      downvotes: vote.downvotes,
+                      score: vote.score,
+                      my_vote: vote.my_vote,
+                    })
+                  }
+                  post={post}
+                  token={token}
+                />
+              );
+            })}
           </>
         )}
       </div>
