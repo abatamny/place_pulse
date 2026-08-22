@@ -2800,6 +2800,14 @@ function ForumPanel({
         if (!active) {
           return;
         }
+        const newlyApprovedOwnPost = currentPosts.find((post) => {
+          const postUpdate = response.posts.find((item) => item.id === post.id);
+          return (
+            post.is_mine &&
+            post.moderation_status === "pending" &&
+            postUpdate?.moderation_status === "approved"
+          );
+        });
         setPosts((current) =>
           current.map((post) => {
             const postUpdate = response.posts.find((item) => item.id === post.id);
@@ -2825,6 +2833,9 @@ function ForumPanel({
               : { ...post, comments };
           }),
         );
+        if (newlyApprovedOwnPost) {
+          setNotice(`Forum post shared with ${newlyApprovedOwnPost.place_display_name}.`);
+        }
       } catch {
         // Keep the current pending state and try again on the next tick.
       }
@@ -2963,7 +2974,6 @@ function ForumPanel({
       formElement.reset();
       setPendingPosts((current) => current.filter((post) => post.id !== pendingId));
       setPosts((current) => [published, ...current.filter((post) => post.id !== published.id)]);
-      setNotice(`Forum post shared with ${published.place_display_name}.`);
     } catch (caught) {
       setPendingPosts((current) => current.filter((post) => post.id !== pendingId));
       setError(caught instanceof Error ? caught.message : "Could not publish post");
